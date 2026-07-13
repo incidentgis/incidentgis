@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Incident GIS">
+  <defs>
+    <linearGradient id="bg2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fff5f5"/>
+      <stop offset="100%" stop-color="#ffd1d8"/>
+    </linearGradient>
+    <linearGradient id="pin2" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ff3b5c"/>
+      <stop offset="60%" stop-color="#c8102e"/>
+      <stop offset="100%" stop-color="#7a0a1f"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="96" fill="url(#bg2)"/>
+  <circle cx="256" cy="280" r="180" fill="none" stroke="#ff6b6b" stroke-width="14" stroke-dasharray="22 32" opacity="0.7"/>
+  <path d="M256 76c-58 0-106 46-106 102 0 77 106 190 106 190s106-113 106-190c0-56-48-102-106-102z"
+        fill="url(#pin2)" stroke="#1a0008" stroke-width="8"/>
+  <circle cx="256" cy="182" r="38" fill="#fff5f5"/>
+  <circle cx="256" cy="182" r="20" fill="#c8102e"/>
+  <path d="M390 90 L410 64 L404 100 L444 92 L408 110 L424 142 L390 124 L370 152 L376 116 L340 116 L376 102 Z"
+        fill="#ffba2a" opacity="0.9"/>
+</svg>

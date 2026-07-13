@@ -1,0 +1,23 @@
+{
+  "name": "incidentgis.com",
+  "version": "1.0.0",
+  "description": "Python for Emergency Response & Incident GIS Workflows",
+  "private": true,
+  "scripts": {
+    "build": "eleventy",
+    "serve": "eleventy --serve",
+    "watch": "eleventy --watch",
+    "clean": "rm -rf _site",
+    "deploy": "npm run clean && npm run build && wrangler pages deploy ./_site --project-name=incidentgis-com --branch=main --commit-dirty=true",
+    "deploy:preview": "npm run clean && npm run build && wrangler pages deploy ./_site --project-name=incidentgis-com --branch=preview --commit-dirty=true"
+  },
+  "devDependencies": {
+    "@11ty/eleventy": "^3.0.0",
+    "@11ty/eleventy-navigation": "^0.3.5",
+    "markdown-it": "^14.1.0",
+    "markdown-it-anchor": "^9.0.1",
+    "markdown-it-attrs": "^4.2.0",
+    "markdown-it-task-lists": "^2.1.1",
+    "@11ty/eleventy-plugin-syntaxhighlight": "^5.0.0"
+  }
+}

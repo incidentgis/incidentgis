@@ -1,0 +1,111 @@
+---
+layout: layouts/base.njk
+---
+{% set crumbs = page.url | breadcrumbs(pageTitle or title) %}
+{# Find the node for this url and its siblings/children in contentTree #}
+{% set urlParts = (page.url | replace('/', ' ')).trim().split(' ') %}
+{% set sectionSlug = urlParts[0] %}
+{% set currentNode = false %}
+{% set parentNode = false %}
+{% set siblings = [] %}
+
+{% macro findNode(nodes, url) %}
+  {% for n in nodes %}
+    {% if n.url == url %}__MATCH__{{ loop.index0 }}{% endif %}
+  {% endfor %}
+{% endmacro %}
+
+<article class="content-page">
+  <div class="section-shell">
+    <nav class="breadcrumbs" aria-label="Breadcrumb">
+      {% for crumb in crumbs %}
+        {% if loop.last %}
+          <span class="current" aria-current="page">{{ crumb.label }}</span>
+        {% else %}
+          <a href="{{ site.url }}{{ crumb.url }}">{{ crumb.label }}</a>
+          <span class="sep" aria-hidden="true">/</span>
+        {% endif %}
+      {% endfor %}
+    </nav>
+
+    <div class="prose-shell">
+      <div class="prose">
+        {{ content | safe }}
+
+        {# Children navigation: only for nodes that have child pages #}
+        {% set childList = false %}
+        {% for top in contentTree %}
+          {% if page.url == top.url %}
+            {% set childList = top.children %}
+            {% set parentLabel = top.title %}
+          {% endif %}
+          {% for c1 in top.children %}
+            {% if page.url == c1.url %}
+              {% set childList = c1.children %}
+              {% set parentLabel = c1.title %}
+            {% endif %}
+            {% for c2 in c1.children %}
+              {% if page.url == c2.url %}
+                {% set childList = c2.children %}
+                {% set parentLabel = c2.title %}
+              {% endif %}
+            {% endfor %}
+          {% endfor %}
+        {% endfor %}
+
+        {% if childList and childList.length %}
+          <section class="children-nav" aria-label="Related sub-topics">
+            <h2>Continue inside this section</h2>
+            <div class="related-grid">
+              {% for c in childList %}
+                <a class="related-card" href="{{ site.url }}{{ c.url }}">
+                  <div class="related-card__label">Topic</div>
+                  <div class="related-card__title">{{ c.title }}</div>
+                  <span class="related-card__arrow">→</span>
+                </a>
+              {% endfor %}
+            </div>
+          </section>
+        {% endif %}
+
+        {# Sibling navigation: find parent and show siblings #}
+        {% set siblingList = false %}
+        {% set parentUrl = false %}
+        {% set parentTitle = false %}
+        {% for top in contentTree %}
+          {% for c1 in top.children %}
+            {% if page.url == c1.url %}
+              {% set siblingList = top.children %}
+              {% set parentUrl = top.url %}
+              {% set parentTitle = top.title %}
+            {% endif %}
+            {% for c2 in c1.children %}
+              {% if page.url == c2.url %}
+                {% set siblingList = c1.children %}
+                {% set parentUrl = c1.url %}
+                {% set parentTitle = c1.title %}
+              {% endif %}
+            {% endfor %}
+          {% endfor %}
+        {% endfor %}
+
+        {% if siblingList and siblingList.length > 1 %}
+          <section class="children-nav" aria-label="Related guides">
+            <h2>Other guides in <a href="{{ site.url }}{{ parentUrl }}">{{ parentTitle }}</a></h2>
+            <div class="related-grid">
+              {% for s in siblingList %}
+                {% if s.url != page.url %}
+                  <a class="related-card" href="{{ site.url }}{{ s.url }}">
+                    <div class="related-card__label">Related</div>
+                    <div class="related-card__title">{{ s.title }}</div>
+                    <span class="related-card__arrow">→</span>
+                  </a>
+                {% endif %}
+              {% endfor %}
+            </div>
+          </section>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</article>

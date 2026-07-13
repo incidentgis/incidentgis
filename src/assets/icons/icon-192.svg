@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" role="img" aria-label="Incident GIS">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fff5f5"/>
+      <stop offset="100%" stop-color="#ffd1d8"/>
+    </linearGradient>
+    <linearGradient id="pin" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ff3b5c"/>
+      <stop offset="60%" stop-color="#c8102e"/>
+      <stop offset="100%" stop-color="#7a0a1f"/>
+    </linearGradient>
+  </defs>
+  <rect width="192" height="192" rx="36" fill="url(#bg)"/>
+  <circle cx="96" cy="104" r="68" fill="none" stroke="#ff6b6b" stroke-width="6" stroke-dasharray="8 12" opacity="0.7"/>
+  <path d="M96 28c-22 0-40 17.2-40 38.4 0 29 40 71.6 40 71.6s40-42.6 40-71.6C136 45.2 118 28 96 28z"
+        fill="url(#pin)" stroke="#1a0008" stroke-width="3"/>
+  <circle cx="96" cy="68" r="14" fill="#fff5f5"/>
+  <circle cx="96" cy="68" r="7" fill="#c8102e"/>
+</svg>

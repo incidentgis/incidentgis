@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="ogbg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fff5f5"/>
+      <stop offset="55%" stop-color="#ffe1e6"/>
+      <stop offset="100%" stop-color="#ffd1d8"/>
+    </linearGradient>
+    <radialGradient id="ogglow" cx="78%" cy="42%" r="55%">
+      <stop offset="0%" stop-color="#ffb199" stop-opacity="0.6"/>
+      <stop offset="60%" stop-color="#ff5a5f" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#7a0a1f" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="ogpin" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ff3b5c"/>
+      <stop offset="60%" stop-color="#c8102e"/>
+      <stop offset="100%" stop-color="#7a0a1f"/>
+    </linearGradient>
+    <linearGradient id="oghead" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#7a0a1f"/>
+      <stop offset="55%" stop-color="#c8102e"/>
+      <stop offset="100%" stop-color="#ff5a3c"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="630" fill="url(#ogbg)"/>
+  <rect width="1200" height="630" fill="url(#ogglow)"/>
+
+  <!-- Brand pill -->
+  <g transform="translate(80, 84)">
+    <rect x="0" y="0" rx="36" ry="36" width="252" height="56" fill="#fff5f5" stroke="#e7b6bd"/>
+    <circle cx="26" cy="28" r="8" fill="#c8102e"/>
+    <text x="48" y="35" font-family="Inter, system-ui, sans-serif" font-weight="700" font-size="18" fill="#7a0a1f" letter-spacing="3">FIELD · NIMS · FEMA · OGC</text>
+  </g>
+
+  <!-- Headline -->
+  <g font-family="Inter, system-ui, sans-serif" fill="url(#oghead)">
+    <text x="80" y="240" font-size="78" font-weight="800" letter-spacing="-2">Python for emergency</text>
+    <text x="80" y="324" font-size="78" font-weight="800" letter-spacing="-2">response &amp; incident GIS.</text>
+  </g>
+
+  <!-- Subhead -->
+  <g font-family="Inter, system-ui, sans-serif" fill="#3a1418">
+    <text x="80" y="396" font-size="28" font-weight="500">Production-grade, field-tested Python patterns for</text>
+    <text x="80" y="432" font-size="28" font-weight="500">emergency operations under degraded conditions.</text>
+  </g>
+
+  <!-- Domain -->
+  <g font-family="Inter, system-ui, sans-serif" fill="#7a0a1f">
+    <text x="80" y="550" font-size="24" font-weight="700" letter-spacing="2">INCIDENTGIS.COM</text>
+  </g>
+
+  <!-- Pin emblem -->
+  <g transform="translate(900, 130)">
+    <circle cx="160" cy="170" r="160" fill="none" stroke="#ff6b6b" stroke-width="3" stroke-dasharray="6 10" opacity="0.7"/>
+    <circle cx="160" cy="170" r="124" fill="none" stroke="#c8102e" stroke-width="2" stroke-dasharray="3 8" opacity="0.55"/>
+    <path d="M160 30c-52 0-94 41-94 91 0 70 94 173 94 173s94-103 94-173c0-50-42-91-94-91z"
+          fill="url(#ogpin)" stroke="#1a0008" stroke-width="3"/>
+    <circle cx="160" cy="118" r="32" fill="#fff5f5"/>
+    <circle cx="160" cy="118" r="16" fill="#c8102e"/>
+    <path d="M285 60 L300 32 L294 70 L334 60 L298 80 L314 110 L280 92 L262 116 L268 80 L232 80 L268 70 Z" fill="#ffba2a" opacity="0.9"/>
+  </g>
+</svg>

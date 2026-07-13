@@ -1,0 +1,202 @@
+---
+layout: layouts/base.njk
+---
+<section class="hero">
+  <div class="hero__inner">
+    <div class="hero__copy">
+      <span class="hero__eyebrow"><span class="dot"></span> Field-tested · NIMS · FEMA · OGC</span>
+      <h1>Python for emergency response &amp; <span class="accent">incident GIS</span> workflows.</h1>
+      <p class="lead">
+        A production-focused, field-tested technical resource for building reliable, compliant,
+        and scalable Python GIS workflows tailored to emergency management. Every pattern is
+        designed to work in the field — not just in a lab.
+      </p>
+      <p>
+        Built for emergency management tech teams, GIS analysts, public safety developers, and
+        government platform engineers, this site documents architecture patterns that prioritize
+        operational continuity under intermittent connectivity, strict compliance mandates, and
+        high-stakes decision timelines.
+      </p>
+      <p>
+        Focus areas: incident location mapping, evacuation routing, shelter capacity tracking,
+        real-time multi-agency sync, alert automation, reporting, and failover planning.
+      </p>
+
+      <div class="hero__cta">
+        {% for section in site.sections %}
+          <a class="cta {% if loop.first %}cta--primary{% elif loop.index0 == 1 %}cta--ember{% else %}cta--rose{% endif %}" href="{{ site.url }}/{{ section.slug }}/">
+            <span class="cta__icon">
+              {% include "partials/icon-" + section.icon + ".njk" ignore missing %}
+            </span>
+            <span>{{ section.short }}</span>
+          </a>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="hero__art" aria-hidden="true">
+      <svg viewBox="0 0 420 420" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <radialGradient id="halo" cx="50%" cy="50%" r="60%">
+            <stop offset="0%" stop-color="#ffb199" stop-opacity="0.9"/>
+            <stop offset="55%" stop-color="#ff5a5f" stop-opacity="0.5"/>
+            <stop offset="100%" stop-color="#7a0a1f" stop-opacity="0"/>
+          </radialGradient>
+          <linearGradient id="pin3" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stop-color="#ff3b5c"/>
+            <stop offset="60%" stop-color="#c8102e"/>
+            <stop offset="100%" stop-color="#7a0a1f"/>
+          </linearGradient>
+          <linearGradient id="ringg" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#ffd1d8"/>
+            <stop offset="100%" stop-color="#ff6b6b"/>
+          </linearGradient>
+        </defs>
+        <circle cx="210" cy="220" r="200" fill="url(#halo)"/>
+        <circle cx="210" cy="220" r="148" fill="none" stroke="url(#ringg)" stroke-width="3" stroke-dasharray="2 8" opacity="0.7"/>
+        <circle cx="210" cy="220" r="118" fill="none" stroke="#ff6b6b" stroke-width="2" stroke-dasharray="4 6" opacity="0.6"/>
+        <circle cx="210" cy="220" r="88"  fill="none" stroke="#c8102e" stroke-width="1.4" stroke-dasharray="6 8" opacity="0.55"/>
+        <g stroke="#1a0008" stroke-width="1.5" stroke-linecap="round" opacity="0.4">
+          <line x1="210" y1="40" x2="210" y2="58"/>
+          <line x1="210" y1="382" x2="210" y2="400"/>
+          <line x1="20" y1="220" x2="38" y2="220"/>
+          <line x1="382" y1="220" x2="400" y2="220"/>
+        </g>
+        <!-- secondary pins -->
+        <g opacity="0.85">
+          <circle cx="120" cy="160" r="9" fill="#ffba2a"/>
+          <circle cx="120" cy="160" r="4" fill="#7a0a1f"/>
+          <circle cx="305" cy="120" r="8" fill="#ff5a3c"/>
+          <circle cx="305" cy="120" r="3.5" fill="#7a0a1f"/>
+          <circle cx="320" cy="300" r="9" fill="#c8102e"/>
+          <circle cx="320" cy="300" r="4" fill="#fff5f5"/>
+          <circle cx="100" cy="305" r="8" fill="#ff6b6b"/>
+          <circle cx="100" cy="305" r="3.5" fill="#fff5f5"/>
+        </g>
+        <!-- main pin -->
+        <path d="M210 80c-32 0-58 25-58 55.7 0 41 58 104.3 58 104.3s58-63.3 58-104.3C268 105 242 80 210 80z"
+              fill="url(#pin3)" stroke="#1a0008" stroke-width="2"/>
+        <circle cx="210" cy="138" r="20" fill="#fff5f5"/>
+        <circle cx="210" cy="138" r="10" fill="#c8102e"/>
+        <!-- sparks -->
+        <path d="M320 60 L334 36 L330 70 L364 60 L334 78 L348 100 L320 84 L302 108 L308 80 L278 80 L308 70 Z"
+              fill="#ffba2a" opacity="0.85"/>
+      </svg>
+    </div>
+  </div>
+</section>
+
+<section class="section-shell">
+  <div class="section-grid">
+    {% for section in site.sections %}
+      <a class="section-card section-card--{{ section.accent }}" href="{{ site.url }}/{{ section.slug }}/">
+        <span class="section-card__icon">
+          {% include "partials/icon-" + section.icon + ".njk" ignore missing %}
+        </span>
+        <h2>{{ section.title }}</h2>
+        <p>{{ section.summary }}</p>
+        <span class="section-card__more">Explore the section</span>
+      </a>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="section-shell">
+  <div class="prose-shell">
+    <div class="prose">
+      <h2>What you'll find inside</h2>
+      <p>
+        Each section is organized into focused, deeply-linked technical guides covering the full
+        lifecycle of emergency GIS — from coordinate reference system choice and field data
+        ingestion through real-time multi-agency sync and reproducible Python toolchains. Alongside
+        the core references you'll find head-to-head technology comparisons (FlatGeobuf vs GeoPackage,
+        Kafka vs RabbitMQ), throughput benchmarks under simulated surge load, evacuation routing and
+        shelter-capacity schemas, and consolidated NIMS, FEMA, and OGC compliance checklists. Every
+        article includes working code, deterministic patterns, and schema definitions written for
+        engineers shipping mission-critical systems in the field.
+      </p>
+
+      <ul>
+        {% for section in site.sections %}
+          {% set node = false %}
+          {% for n in contentTree %}{% if n.slug == section.slug %}{% set node = n %}{% endif %}{% endfor %}
+          {% if node %}
+            <li>
+              <strong><a href="{{ site.url }}{{ node.url }}">{{ section.title }}</a></strong> —
+              {{ section.summary }}
+              {% if node.children.length %}
+                <ul>
+                  {% for child in node.children %}
+                    <li><a href="{{ site.url }}{{ child.url }}">{{ child.title }}</a>
+                      {% if child.children and child.children.length %}
+                        <ul>
+                          {% for leaf in child.children %}
+                            <li><a href="{{ site.url }}{{ leaf.url }}">{{ leaf.title }}</a></li>
+                          {% endfor %}
+                        </ul>
+                      {% endif %}
+                    </li>
+                  {% endfor %}
+                </ul>
+              {% endif %}
+            </li>
+          {% endif %}
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="section-shell" aria-labelledby="start-here-heading">
+  <div class="prose-shell">
+    <div class="prose">
+      <h2 id="start-here-heading">Start here</h2>
+      <p>
+        New to the site? These articles represent the most important foundations and most-used
+        patterns across the three sections.
+      </p>
+    </div>
+    <div class="related-grid" style="margin-top: 1.2em;">
+      <a class="related-card" href="{{ site.url }}/core-emergency-gis-architecture-data-standards/coordinate-reference-systems-for-disaster-zones/">
+        <div class="related-card__label">Architecture &amp; Standards</div>
+        <div class="related-card__title">Coordinate Reference Systems for Disaster Zones</div>
+        <div class="related-card__arrow">→</div>
+      </a>
+      <a class="related-card" href="{{ site.url }}/core-emergency-gis-architecture-data-standards/compliance-checklists-nims-fema-ogc/">
+        <div class="related-card__label">Architecture &amp; Standards</div>
+        <div class="related-card__title">Compliance Checklists: NIMS ICS-209, FEMA BPAS &amp; OGC API Features</div>
+        <div class="related-card__arrow">→</div>
+      </a>
+      <a class="related-card" href="{{ site.url }}/core-emergency-gis-architecture-data-standards/flatgeobuf-vs-geopackage-for-offline-caching/">
+        <div class="related-card__label">Architecture &amp; Standards</div>
+        <div class="related-card__title">FlatGeobuf vs GeoPackage for Offline Caching</div>
+        <div class="related-card__arrow">→</div>
+      </a>
+      <a class="related-card" href="{{ site.url }}/incident-mapping-multi-agency-sync-workflows/websocket-mqtt-for-live-incident-feeds/">
+        <div class="related-card__label">Incident Mapping &amp; Sync</div>
+        <div class="related-card__title">WebSocket &amp; MQTT for Live Incident Feeds</div>
+        <div class="related-card__arrow">→</div>
+      </a>
+      <a class="related-card" href="{{ site.url }}/incident-mapping-multi-agency-sync-workflows/kafka-vs-rabbitmq-for-live-incident-feeds/">
+        <div class="related-card__label">Incident Mapping &amp; Sync</div>
+        <div class="related-card__title">Kafka vs RabbitMQ for Live Incident Feeds</div>
+        <div class="related-card__arrow">→</div>
+      </a>
+      <a class="related-card" href="{{ site.url }}/incident-mapping-multi-agency-sync-workflows/evacuation-routing-and-road-network-analysis/">
+        <div class="related-card__label">Incident Mapping &amp; Sync</div>
+        <div class="related-card__title">Evacuation Routing &amp; Road Network Analysis</div>
+        <div class="related-card__arrow">→</div>
+      </a>
+      <a class="related-card" href="{{ site.url }}/python-toolchains-for-public-safety-gis/setting-up-dockerized-gis-environments/">
+        <div class="related-card__label">Python Toolchains</div>
+        <div class="related-card__title">Setting Up Dockerized GIS Environments</div>
+        <div class="related-card__arrow">→</div>
+      </a>
+      <a class="related-card" href="{{ site.url }}/python-toolchains-for-public-safety-gis/spatial-data-testing-and-ci-pipelines/">
+        <div class="related-card__label">Python Toolchains</div>
+        <div class="related-card__title">Spatial Data Testing &amp; CI Pipelines</div>
+        <div class="related-card__arrow">→</div>
+      </a>
+    </div>
+  </div>
+</section>
