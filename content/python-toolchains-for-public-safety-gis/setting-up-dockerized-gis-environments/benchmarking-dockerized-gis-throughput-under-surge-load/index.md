@@ -161,6 +161,41 @@ Build the benchmark in ordered tiers, from the fixture that makes runs comparabl
 4. **Escalate the load tiers.** Replay the batch at baseline, elevated, surge, and overload sizes to locate the knee where sustained throughput stops climbing and latency rises.
 5. **Emit a benchmark artifact (safe default).** For every tier, record throughput, wall time, peak resident memory, and the pinned toolchain versions to a structured log, so the measurement is reproducible and can be attached to a capacity decision.
 
+The first question a container benchmark has to answer is whether containerisation costs anything at all, and the honest answer is "almost nothing, except where it costs a great deal".
+
+<svg viewBox="0 0 880 380" role="img" aria-labelledby="co-t co-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="co-t">Containerised throughput as a percentage of bare-metal, by workload</title>
+  <desc id="co-d">Four workloads run bare-metal and in a container on the same host. Pure coordinate transformation reaches 99 per cent of bare-metal throughput, because it is CPU-bound and the container adds no CPU indirection. In-memory geometry validation reaches 98 per cent. Reading a GeoPackage from a bind-mounted volume reaches 94 per cent, the small loss coming from the mount layer. Reading the same GeoPackage from a container's overlay filesystem reaches 61 per cent, because every read traverses the union filesystem's copy-up logic. The lesson is that container overhead is negligible for compute and substantial for I/O through the overlay, so the fix is not to abandon containers but to bind-mount every path the workload reads or writes.</desc>
+  <rect x="0" y="0" width="880" height="380" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">containerised throughput as a share of bare metal, same host</text>
+  <path d="M300 76 V320" fill="none" stroke="var(--crimson-deep)" stroke-width="1.4"/>
+  <text x="8" y="70" font-size="10" fill="var(--muted)">0%</text>
+  <path d="M812 76 V320" fill="none" stroke="var(--crimson-deep)" stroke-width="1.6" stroke-dasharray="5 4"/>
+  <text x="742" y="70" font-size="10" font-weight="700" fill="var(--crimson-deep)">bare metal</text>
+  <rect x="300" y="92" width="507" height="34" rx="5" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="1.2"/>
+  <rect x="300" y="150" width="502" height="34" rx="5" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="1.2"/>
+  <rect x="300" y="208" width="481" height="34" rx="5" fill="var(--petal)" stroke="var(--crimson-deep)" stroke-width="1.2"/>
+  <rect x="300" y="266" width="312" height="34" rx="5" fill="var(--ember)" opacity="0.55" stroke="var(--ember)" stroke-width="1.4"/>
+  <g font-size="10.5" fill="currentColor">
+    <text x="8" y="114">coordinate transform · CPU-bound</text>
+    <text x="8" y="172">geometry validation · in memory</text>
+    <text x="8" y="230">GeoPackage read · bind mount</text>
+    <text x="8" y="288">GeoPackage read · overlay fs</text>
+  </g>
+  <g font-size="10.5" font-weight="700" fill="var(--crimson-deep)">
+    <text x="820" y="114">99%</text><text x="820" y="172">98%</text><text x="820" y="230">94%</text>
+  </g>
+  <text x="622" y="288" font-size="10.5" font-weight="700" fill="var(--ember-text)">61%</text>
+  <text x="8" y="352" font-size="10.5" fill="currentColor">Container overhead is negligible for compute and substantial for I/O through the overlay —</text>
+  <text x="8" y="370" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">so bind-mount every path the workload reads or writes, and the last row disappears.</text>
+</svg>
+
+The top three rows are the answer to the objection this benchmark usually exists to settle. Containerising a GIS workload does not meaningfully cost throughput, because the expensive parts — transformation, validation, geometry operations — are CPU work and a container does not stand between the process and the CPU.
+
+The bottom row is a configuration defect wearing a performance result's clothes. Reading data through the overlay filesystem costs nearly 40 per cent, and it is entirely avoidable: bind-mount the data path and the row moves up to 94 per cent. Publishing that 61 per cent figure as "container overhead" would be true and misleading, because it measures a mount arrangement nobody should be running rather than a property of containers.
+
+Which is why the benchmark protocol has to record the mount topology alongside the numbers. A throughput figure with no statement of where the data lived is uninterpretable — it could be either of the last two rows — and the difference between them is the difference between "containers are fine" and "containers cost us a third of our throughput", a conclusion teams have abandoned reproducible builds over.
+
 ## Production Python Implementation
 
 The harness below carries the full path: a deterministic feature generator, the GIS work unit (validate geometry, reproject with `pyproj`, buffer), a cold-versus-warm measurement loop across load tiers, structured logging, explicit exception handling, and a benchmark artifact emitted per tier. Senior-engineer assumptions apply: `pyproj`, `shapely`, and `geopandas` are available on a pinned image, and peak memory is sampled with the standard-library `resource` and `tracemalloc` so the harness has no extra runtime dependency.
@@ -343,6 +378,41 @@ Representative measurements on a single container limited to **4 vCPU and 8 GB R
 | overload  | 250,000          | 6,350           | 9,700           | 39.37         | 25.77         | 1,880          |
 
 The shape is the point: warm throughput climbs steeply from baseline through elevated, reaches its knee at the surge tier near 9,600 features per second, and barely moves into overload while wall time and peak memory keep rising — the surplus load has become queue depth, not work done. The cold column sits roughly 30–35 percent below warm at every tier, quantifying the one-time import and PROJ-grid tax a freshly scheduled replica pays before it is useful. Size aggregate offered load to stay left of the surge knee, and plan scale-out latency around the cold figure.
+
+Surge is not just "more of the same", and a benchmark that only scales the input rate misses the two effects that actually degrade a container under load.
+
+<svg viewBox="0 0 880 380" role="img" aria-labelledby="cg-t cg-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="cg-t">Throughput against offered load, with and without a CPU quota</title>
+  <desc id="cg-d">Completed jobs per minute against offered load for a container with an unlimited CPU allocation and one limited to two CPUs. The unlimited container tracks offered load up to about 55 jobs per minute, then falls away as the host itself saturates and every container on it — including the database — begins to starve. The limited container tracks offered load to about 38 jobs per minute and then flattens, refusing to take more but continuing to deliver its full rate indefinitely. The higher peak is not worth having: past its own limit the unlimited container degrades the host it shares, so its extra capacity is borrowed from the services the response depends on.</desc>
+  <rect x="0" y="0" width="880" height="380" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">a CPU quota lowers the peak and removes the collapse</text>
+  <text x="8" y="70" font-size="10" fill="var(--muted)">jobs completed/min</text>
+  <g stroke="var(--line-strong)" stroke-width="0.9" opacity="0.5">
+    <path d="M180 240 H820"/><path d="M180 180 H820"/><path d="M180 120 H820"/>
+  </g>
+  <g font-size="10" fill="var(--muted)">
+    <text x="140" y="304">0</text><text x="140" y="244">20</text><text x="140" y="184">40</text><text x="140" y="124">60</text><text x="140" y="64">80</text>
+  </g>
+  <path d="M180 300 H820" fill="none" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <path d="M180 60 V300" fill="none" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <path d="M180 300 L340 210 L460 138 L560 135 L660 186 L760 234 L820 258" fill="none" stroke="var(--ember)" stroke-width="2.8"/>
+  <path d="M180 300 L340 210 L440 186 L560 186 L680 186 L820 186" fill="none" stroke="var(--crimson)" stroke-width="2.8"/>
+  <text x="470" y="112" font-size="10.5" font-weight="700" fill="var(--ember-text)">no quota — peaks at 55, then collapses</text>
+  <text x="590" y="212" font-size="10.5" font-weight="700" fill="var(--crimson)">cpus: 2 — flat at 38, indefinitely</text>
+  <path d="M560 60 V300" fill="none" stroke="var(--crimson-deep)" stroke-width="1.4" stroke-dasharray="5 4"/>
+  <text x="392" y="76" font-size="10" font-weight="700" fill="var(--crimson-deep)">host saturates here</text>
+  <g font-size="10" text-anchor="middle" fill="var(--muted)">
+    <text x="180" y="320">0</text><text x="340" y="320">30</text><text x="500" y="320">60</text><text x="660" y="320">90</text><text x="820" y="320">120</text>
+    <text x="500" y="344" font-size="11">offered load (jobs/min)</text>
+  </g>
+  <text x="8" y="372" font-size="10.5" fill="currentColor">The unlimited container's extra 17 jobs/min are borrowed from the database on the same host.</text>
+</svg>
+
+The unquotaed container looks better on any benchmark that stops before the collapse, which is most of them. Its peak is 45 per cent higher, and if the test tops out at 50 jobs per minute the two curves are indistinguishable. The difference only appears past the point where the container starts consuming CPU that other things on the host needed — and on a forward node, the other things are the PostGIS instance serving the operating picture and the sync client draining the field queue.
+
+That is what makes the flat curve the better one despite the lower number. A container that refuses work above its quota produces backpressure, which is a signal something upstream can act on: the queue depth grows, an alert fires, and an operator can shed load deliberately. A container that accepts everything and degrades the host produces no signal at all until the map stops refreshing, at which point the cause is three services away from the symptom.
+
+Benchmark past the collapse deliberately. Ramp offered load until throughput falls, record where it turns over, and set the quota below it — the useful output of a surge benchmark is a limit, not a maximum.
 
 ## Validation Checklist
 

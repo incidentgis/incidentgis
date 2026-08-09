@@ -148,6 +148,64 @@ This is dangerous rather than merely inconvenient because the failure surfaces i
   <text x="778" y="210" font-size="10" text-anchor="middle" fill="currentColor">walk enumeration</text>
 </svg>
 
+Sizing the job is the first place this goes wrong, and it goes wrong because the relationship between zoom depth and cache size is not the one intuition supplies.
+
+<svg viewBox="0 0 880 380" role="img" aria-labelledby="ps1-t ps1-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="ps1-t">Cache size by maximum seed zoom for one coastal impact corridor, against the device budget</title>
+  <desc id="ps1-d">Tile counts and cache size for a single coastal impact corridor seeded to each maximum zoom level. Zoom 10 needs 12 tiles and 0.4 megabytes, zoom 11 needs 48 tiles and 1.6 megabytes, zoom 12 needs 190 tiles and 6.2 megabytes, zoom 13 needs 760 tiles and 25 megabytes, zoom 14 needs 3,040 tiles and 99 megabytes, and zoom 15 needs 12,160 tiles and 396 megabytes. Each zoom level quadruples both figures. A 120 megabyte per-corridor device budget is drawn across them: zoom 14 fits with headroom and zoom 15 does not, by more than a factor of three. This is why a seed job configured for zoom 15 runs out of disk partway through and leaves a cache that looks populated in the operations centre and has holes at the impact edge.</desc>
+  <rect x="0" y="0" width="880" height="380" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">every zoom level quadruples the job — one corridor, seeded to each maximum zoom</text>
+  <rect x="240" y="92" width="0.6" height="24" rx="4" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="1.1"/>
+  <rect x="240" y="130" width="2.3" height="24" rx="4" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="1.1"/>
+  <rect x="240" y="168" width="8.8" height="24" rx="4" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="1.1"/>
+  <rect x="240" y="206" width="35.4" height="24" rx="4" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="1.1"/>
+  <rect x="240" y="244" width="140.0" height="24" rx="4" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="1.1"/>
+  <rect x="240" y="282" width="560.0" height="24" rx="4" fill="var(--ember)" opacity="0.6" stroke="var(--crimson-deep)" stroke-width="1.1"/>
+  <text x="8" y="109" font-size="10.5" fill="currentColor">z10 · 12 tiles · 0.4 MB</text>
+  <text x="8" y="147" font-size="10.5" fill="currentColor">z11 · 48 tiles · 1.6 MB</text>
+  <text x="8" y="185" font-size="10.5" fill="currentColor">z12 · 190 tiles · 6.2 MB</text>
+  <text x="8" y="223" font-size="10.5" fill="currentColor">z13 · 760 tiles · 25 MB</text>
+  <text x="8" y="261" font-size="10.5" fill="currentColor">z14 · 3,040 tiles · 99 MB</text>
+  <text x="8" y="299" font-size="10.5" fill="currentColor">z15 · 12,160 tiles · 396 MB</text>
+  <path d="M409.7 82 V326" fill="none" stroke="var(--crimson-deep)" stroke-width="1.6" stroke-dasharray="5 4"/>
+  <text x="418" y="76" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">120 MB per-corridor device budget</text>
+  <path d="M240 332 H800" fill="none" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <g font-size="10" text-anchor="middle" fill="var(--muted)">
+    <text x="240" y="350">0</text><text x="381.4" y="350">100</text><text x="522.8" y="350">200</text>
+    <text x="664.2" y="350">300</text><text x="805.6" y="350">400 MB</text>
+  </g>
+  <text x="440" y="374" font-size="11" text-anchor="middle" fill="var(--muted)">A seed job set one zoom too deep does not fail loudly — it fills the disk and stops.</text>
+</svg>
+
+Each additional zoom level quadruples both the tile count and the bytes, so the difference between "seed to 14" and "seed to 15" is not a 7 per cent increase in thoroughness — it is a four-fold increase in a job that was already the largest thing the device will hold. A planner who reasons "z15 gives crews street-level detail, and we have 400 MB free" has committed the device to a single corridor, which is fine right up to the moment a second corridor is opened.
+
+Worse, the failure when the budget is exceeded is not a refusal. The seed job runs, writes tiles until the allocation is gone, and stops. What it leaves behind depends entirely on the order it happened to walk the pyramid.
+
+<svg viewBox="0 0 880 360" role="img" aria-labelledby="ps2-t ps2-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="ps2-t">Where a truncated seed leaves its hole, relative to the forecast track</title>
+  <desc id="ps2-d">A coastal corridor is drawn with the forecast landfall track crossing it. The seed job walks the tile pyramid in z, x, y order, which for this corridor means it fills from the inland edge outward. When it exhausts its disk allocation partway through zoom 14 it stops, leaving the inland two-thirds complete and a band along the coast unseeded. That band is precisely where crews will be working, so a cache that reports eighty per cent coverage is missing the only part that matters. The remedy is to seed in order of operational priority — the impact edge first, then inland — so that a truncated job degrades from the least important tiles rather than the most important ones.</desc>
+  <rect x="0" y="0" width="880" height="360" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">a truncated seed loses whichever tiles it happened to reach last</text>
+  <path d="M120 80 H760 V300 H120 Z" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <path d="M120 80 H545 V300 H120 Z" fill="var(--petal-soft)"/>
+  <path d="M545 80 H760 V300 H545 Z" fill="var(--ember)" opacity="0.3"/>
+  <path d="M545 80 V300" fill="none" stroke="var(--ember)" stroke-width="2" stroke-dasharray="6 4"/>
+  <path d="M700 60 Q660 180 720 320" fill="none" stroke="var(--crimson)" stroke-width="3"/>
+  <text x="614" y="60" font-size="10.5" font-weight="700" fill="var(--crimson)">forecast track</text>
+  <text x="140" y="112" font-size="11" font-weight="700" fill="var(--crimson-deep)">seeded — inland</text>
+  <text x="140" y="130" font-size="10" fill="currentColor">z10–z14 complete</text>
+  <text x="562" y="112" font-size="11" font-weight="700" fill="var(--ember-text)">unseeded — impact edge</text>
+  <text x="562" y="130" font-size="10" fill="currentColor">disk exhausted here</text>
+  <path d="M140 270 H520" fill="none" stroke="var(--crimson-deep)" stroke-width="1.6"/>
+  <path d="M520 270 l-9 -5 M520 270 l-9 5" fill="none" stroke="var(--crimson-deep)" stroke-width="1.6"/>
+  <text x="140" y="260" font-size="10" fill="var(--muted)">seed order: z, then x, then y — inland first</text>
+  <text x="8" y="332" font-size="11" fill="currentColor">Seed by operational priority instead, and a truncated job loses the tiles nobody was going to open.</text>
+</svg>
+
+A conventional seeder iterates z, then x, then y, which has no relationship to operational priority and for a coastal corridor typically means filling from the inland edge outward. The resulting cache reports high coverage and is missing the impact edge — the one part of the map crews will actually be standing on. Nothing in the operations centre reveals this: the tile count is large, the file exists, and spot-checking a few tiles succeeds because the tiles you would think to check are the inland ones near the staging area.
+
+Two changes make the truncation safe. Seed in order of operational priority — impact edge first, then the evacuation routes leading away from it, then inland fill — so that whatever the job fails to reach is the part nobody was going to open. And assert coverage against the *forecast corridor polygon* rather than against a tile count, so a job that stopped early fails its own verification instead of reporting a large number.
+
 ## Tiered Resolution Strategy
 
 Seed the cache in ordered tiers, from the definitive fix down to a safe default that always leaves an audit flag. The governing rule is that a run either finishes completely or reports exactly what it could not do — a half-populated cache must never be presented as ready.

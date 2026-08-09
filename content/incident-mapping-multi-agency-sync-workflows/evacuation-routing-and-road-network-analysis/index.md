@@ -490,6 +490,45 @@ Tune these per deployment; a dense metropolitan graph and a rural county network
 | Node coverage radius | `EVAC_ISO_BUFFER_M` | `60.0` | Metre buffer per reachable node when building the surface. |
 | Routing CRS | `EVAC_CRS` | `EPSG:32610` | Projected metre CRS; never route in geographic degrees. |
 
+Of the seven parameters above, the BPR exponent is the one whose default looks most arbitrary and matters most, because the whole point of an evacuation is that it happens on the part of the curve nobody normally uses.
+
+<svg viewBox="0 0 880 380" role="img" aria-labelledby="bpr-t bpr-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="bpr-t">The BPR congestion curve at three exponents, and what the exponent decides</title>
+  <desc id="bpr-d">Travel time as a multiple of free-flow time plotted against the ratio of volume to capacity, using the Bureau of Public Roads function with exponents of two, four and eight. All three agree closely below about 70 per cent of capacity, so the exponent barely matters on an uncongested network. Past capacity they diverge sharply: at 120 per cent of capacity an exponent of two gives about 1.3 times free-flow, four gives about 1.3, and eight about 1.9 — and by 140 per cent the exponent of eight has more than doubled the penalty the exponent of two applies. Because an evacuation is precisely the condition in which corridors run past capacity, the exponent is not a tuning detail: it decides whether the router keeps loading a saturated arterial or starts pushing traffic onto parallel routes.</desc>
+  <rect x="0" y="0" width="880" height="380" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">EVAC_BPR_EXPONENT — irrelevant below capacity, decisive above it</text>
+  <text x="8" y="70" font-size="10" fill="var(--muted)">travel time ÷ free-flow</text>
+  <g stroke="var(--line-strong)" stroke-width="0.9" opacity="0.5">
+    <path d="M180 260 H800"/><path d="M180 220 H800"/><path d="M180 180 H800"/><path d="M180 140 H800"/><path d="M180 100 H800"/>
+  </g>
+  <g font-size="10" fill="var(--muted)">
+    <text x="140" y="304">1×</text><text x="140" y="264">2×</text><text x="140" y="224">3×</text>
+    <text x="140" y="184">4×</text><text x="140" y="144">5×</text><text x="140" y="104">6×</text>
+  </g>
+  <path d="M180 300 H800" fill="none" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <path d="M180 60 V300" fill="none" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <path d="M622.9 60 V300" fill="none" stroke="var(--crimson-deep)" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <text x="500" y="76" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">at capacity</text>
+  <path d="M180.0 260.0 L202.1 260.0 L224.3 259.9 L246.4 259.9 L268.6 259.8 L290.7 259.6 L312.9 259.5 L335.0 259.3 L357.1 259.0 L379.3 258.8 L401.4 258.5 L423.6 258.2 L445.7 257.8 L467.9 257.5 L490.0 257.1 L512.1 256.6 L534.3 256.2 L556.4 255.7 L578.6 255.1 L600.7 254.6 L622.9 254.0 L645.0 253.4 L667.1 252.7 L689.3 252.1 L711.4 251.4 L733.6 250.6 L755.7 249.9 L777.9 249.1 L800.0 248.2" fill="none" stroke="var(--petal)" stroke-width="2.2"/>
+  <path d="M180.0 260.0 L202.1 260.0 L224.3 260.0 L246.4 260.0 L268.6 260.0 L290.7 260.0 L312.9 260.0 L335.0 259.9 L357.1 259.8 L379.3 259.8 L401.4 259.6 L423.6 259.5 L445.7 259.2 L467.9 258.9 L490.0 258.6 L512.1 258.1 L534.3 257.5 L556.4 256.9 L578.6 256.1 L600.7 255.1 L622.9 254.0 L645.0 252.7 L667.1 251.2 L689.3 249.5 L711.4 247.6 L733.6 245.4 L755.7 242.9 L777.9 240.1 L800.0 237.0" fill="none" stroke="var(--crimson)" stroke-width="3.0"/>
+  <path d="M180.0 260.0 L202.1 260.0 L224.3 260.0 L246.4 260.0 L268.6 260.0 L290.7 260.0 L312.9 260.0 L335.0 260.0 L357.1 260.0 L379.3 260.0 L401.4 260.0 L423.6 259.9 L445.7 259.9 L467.9 259.8 L490.0 259.7 L512.1 259.4 L534.3 259.0 L556.4 258.4 L578.6 257.4 L600.7 256.0 L622.9 254.0 L645.0 251.1 L667.1 247.1 L689.3 241.6 L711.4 234.2 L733.6 224.2 L755.7 211.1 L777.9 193.8 L800.0 171.5" fill="none" stroke="var(--crimson-deep)" stroke-width="2.2"/>
+  <text x="640" y="120" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">exponent 8</text>
+  <text x="640" y="232" font-size="10.5" font-weight="700" fill="var(--crimson)">exponent 4 (default)</text>
+  <text x="640" y="286" font-size="10.5" font-weight="700" fill="currentColor">exponent 2</text>
+  <g font-size="10" text-anchor="middle" fill="var(--muted)">
+    <text x="180" y="320">0</text><text x="357" y="320">0.4</text><text x="534" y="320">0.8</text>
+    <text x="711" y="320">1.2</text><text x="800" y="320">1.4</text>
+    <text x="490" y="344" font-size="11">volume ÷ capacity</text>
+  </g>
+  <text x="8" y="372" font-size="10.5" fill="currentColor">An evacuation is the condition that lives on the right-hand side of this chart.</text>
+</svg>
+
+Below about 70 per cent of capacity the three curves are indistinguishable, which is why the exponent almost never matters in ordinary traffic modelling and why a default gets carried forward without much thought. Past capacity they separate fast, and the separation is the behaviour the router will actually exhibit: a low exponent keeps assigning traffic to an arterial that is already saturated, because the modelled cost of doing so barely rises; a high exponent starts diverting onto parallel routes early, accepting longer nominal distances to avoid a corridor that is about to gridlock.
+
+Neither is universally right, and the choice is a statement about the network rather than about the algorithm. Where a dense grid offers real alternatives — an urban evacuation with parallel arterials — a higher exponent uses them and spreads load. Where the alternatives are 20 kilometres of detour on a rural network with one road out, a high exponent will route evacuees onto that detour for a modelled saving that will not materialise, and the lower exponent's willingness to keep loading the main road is closer to what actually happens.
+
+Two cautions on setting it. It interacts with `EVAC_CONTRAFLOW_FACTOR`, since contraflow raises capacity and therefore moves the whole network left along this axis — tune them together or the contraflow benefit gets eaten by a penalty curve calibrated for the pre-contraflow capacity. And validate against a real evacuation's observed travel times if you have one; a curve that reproduces a past event is worth more than any argument from first principles about the right exponent.
+
 ## Verification & Smoke Test
 
 Run these assertions on a staging node before promoting any change to the routing engine. They confirm that a hazard closure forces a detour, that routing is deterministic, and that the graph survives a route query intact.
@@ -539,6 +578,39 @@ A one-line CLI check confirms the stack is wired before the engine is deployed t
 ```bash
 python -c "import networkx, shapely, pyproj; print('routing stack ok')"
 ```
+
+The hazard buffer's default of zero deserves the same scrutiny, because zero is the value that makes the closure test a purely geometric one — and geometric adjacency is not the property that matters.
+
+<svg viewBox="0 0 880 380" role="img" aria-labelledby="hb-t hb-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="hb-t">Why a zero-metre hazard buffer leaves edges open that skim the perimeter</title>
+  <desc id="hb-d">A fire perimeter is drawn with three road segments near its edge. With the hazard buffer at its default of zero metres, only the segment that geometrically crosses the perimeter is closed; a segment running parallel forty metres outside it and one clipping the perimeter at a single vertex both stay open, so the router will happily send an evacuation convoy along the edge of an active fire. Padding the perimeter by 150 metres closes all three. The buffer is not a safety margin against measurement error in the perimeter — it is an acknowledgement that a road within a hundred metres of a fire front is not usable even though it is not yet inside it.</desc>
+  <rect x="0" y="0" width="880" height="380" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">EVAC_HAZARD_BUFFER_M — the default of 0 closes only what the perimeter geometrically crosses</text>
+  <text x="80" y="80" font-size="11" font-weight="700" fill="currentColor">buffer 0 m</text>
+  <text x="500" y="80" font-size="11" font-weight="700" fill="currentColor">buffer 150 m</text>
+  <path d="M120 190 Q170 110 250 130 Q330 150 340 220 Q320 300 220 300 Q120 285 120 190 Z" fill="var(--ember)" opacity="0.3" stroke="var(--ember)" stroke-width="2"/>
+  <path d="M540 190 Q590 110 670 130 Q750 150 760 220 Q740 300 640 300 Q540 285 540 190 Z" fill="var(--ember)" opacity="0.3" stroke="var(--ember)" stroke-width="2"/>
+  <path d="M524 190 Q580 92 678 116 Q772 142 782 222 Q758 320 638 318 Q516 300 524 190 Z" fill="none" stroke="var(--crimson-deep)" stroke-width="1.8" stroke-dasharray="6 4"/>
+  <path d="M90 150 H370" fill="none" stroke="var(--ember-text)" stroke-width="3.4"/>
+  <path d="M90 240 H370" fill="none" stroke="var(--crimson)" stroke-width="3.4"/>
+  <path d="M90 330 H370" fill="none" stroke="var(--crimson)" stroke-width="3.4"/>
+  <path d="M510 150 H790" fill="none" stroke="var(--ember-text)" stroke-width="3.4"/>
+  <path d="M510 240 H790" fill="none" stroke="var(--ember-text)" stroke-width="3.4"/>
+  <path d="M510 330 H790" fill="none" stroke="var(--ember-text)" stroke-width="3.4"/>
+  <text x="90" y="142" font-size="9.5" fill="var(--ember-text)" font-weight="700">crosses — closed</text>
+  <text x="90" y="232" font-size="9.5" fill="var(--crimson)" font-weight="700">clips one vertex — still open</text>
+  <text x="90" y="322" font-size="9.5" fill="var(--crimson)" font-weight="700">40 m outside — still open</text>
+  <text x="510" y="142" font-size="9.5" fill="var(--ember-text)" font-weight="700">closed</text>
+  <text x="510" y="232" font-size="9.5" fill="var(--ember-text)" font-weight="700">closed</text>
+  <text x="510" y="322" font-size="9.5" fill="var(--ember-text)" font-weight="700">closed</text>
+  <text x="8" y="364" font-size="10.5" fill="currentColor">Not a margin for perimeter error — an acknowledgement that a road 40 m from a fire front is not a usable road.</text>
+</svg>
+
+At zero, `EVAC_HAZARD_BUFFER_M` closes exactly the edges the perimeter polygon intersects. Everything else stays in the graph, including a segment running forty metres outside an active fire front and one that touches the perimeter at a single vertex without crossing it. Both will be offered to evacuating traffic, and both are roads a division supervisor would refuse to send anyone down.
+
+The buffer exists because the perimeter is a line on a map and the hazard is not. Radiant heat, spotting, smoke reducing visibility to nothing, and the simple fact that a fire front moves between the moment a perimeter is digitised and the moment a convoy reaches that segment — none of those are represented in the polygon, and all of them make the ground near it unusable. Padding by 100 to 200 metres encodes that, and the value is a fire-behaviour judgement rather than a GIS one; it should come from the incident's operations section, not from a config default.
+
+The interaction with `EVAC_PENALIZE_ONLY` is worth thinking through before an incident rather than during one. With penalise-only enabled, buffered edges become extremely expensive rather than absent, so the router will still use them if there is no alternative — which is correct behaviour for a zone that would otherwise be unreachable, and dangerous behaviour if nobody notices the route went through the buffer. Pair the two settings with an explicit alert whenever a published route traverses a penalised edge, so "we had no other option" is a decision somebody made rather than a number the solver produced.
 
 ## Integration With Adjacent Workflows
 

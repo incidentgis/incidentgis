@@ -160,6 +160,41 @@ Do not pick a library from folklore. Resolve the choice in ordered tiers, from a
 3. **Guard the memory ceiling.** On a low-power field device that cannot hold a million-feature frame, prefer PyShp's streaming reader even for a read the benchmark says GeoPandas wins on speed — a job that finishes slowly beats a job the operating system kills.
 4. **Fall back to the general-purpose default with an audit note (safe default).** When a workload is mixed or unmeasured, default to GeoPandas for its richer coordinate-reference handling and ecosystem, but emit an audit record stating that the choice was unbenchmarked so the gap is visible and gets closed. Pin both library versions the same way you would in a reproducible [Dockerized GIS environment](https://www.incidentgis.com/python-toolchains-for-public-safety-gis/setting-up-dockerized-gis-environments/) so a benchmark stays valid across machines.
 
+A benchmark that reports a single throughput number for each library is measuring the wrong thing, because the two libraries fail differently rather than by different amounts.
+
+<svg viewBox="0 0 880 380" role="img" aria-labelledby="bm-t bm-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="bm-t">Throughput against batch size for both libraries, on a 4 GB field node</title>
+  <desc id="bm-d">Features written per second against batch size on a 4 gigabyte field node. GeoPandas is roughly four times faster at every batch size it can complete — about 38,000 features per second — but its curve stops abruptly at 150,000 features, where the process is killed for exceeding available memory. PyShp is slower throughout at about 9,000 features per second and its curve continues flat to a million features and beyond, because its memory use does not depend on batch size. A benchmark reporting mean throughput would rank GeoPandas four times better while omitting the only fact that decides the deployment, which is where each curve ends.</desc>
+  <rect x="0" y="0" width="880" height="380" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">4 GB field node — the number that matters is where the curve stops</text>
+  <text x="8" y="70" font-size="10" fill="var(--muted)">features written/s</text>
+  <g stroke="var(--line-strong)" stroke-width="0.9" opacity="0.5">
+    <path d="M180 240 H820"/><path d="M180 180 H820"/><path d="M180 120 H820"/>
+  </g>
+  <g font-size="10" fill="var(--muted)">
+    <text x="140" y="304">0</text><text x="128" y="244">10k</text><text x="128" y="184">20k</text><text x="128" y="124">30k</text><text x="128" y="64">40k</text>
+  </g>
+  <path d="M180 300 H820" fill="none" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <path d="M180 60 V300" fill="none" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <path d="M180 108 L260 76 L340 70 L400 72" fill="none" stroke="var(--ember)" stroke-width="2.8"/>
+  <path d="M394 60 l14 24 M408 60 l-14 24" fill="none" stroke="var(--ember)" stroke-width="3" stroke-linecap="round"/>
+  <path d="M180 254 L300 246 L440 246 L580 247 L700 246 L820 246" fill="none" stroke="var(--crimson)" stroke-width="2.8"/>
+  <text x="200" y="96" font-size="11" font-weight="700" fill="var(--ember-text)">geopandas — 38k/s</text>
+  <text x="416" y="92" font-size="10.5" font-weight="700" fill="var(--ember-text)">OOM at 150k features</text>
+  <text x="600" y="234" font-size="11" font-weight="700" fill="var(--crimson)">pyshp — 9k/s, no ceiling</text>
+  <g font-size="10" text-anchor="middle" fill="var(--muted)">
+    <text x="180" y="320">10k</text><text x="340" y="320">100k</text><text x="500" y="320">300k</text><text x="660" y="320">600k</text><text x="820" y="320">1M</text>
+    <text x="500" y="344" font-size="11">batch size (features)</text>
+  </g>
+  <text x="8" y="372" font-size="10.5" fill="currentColor">A mean-throughput comparison ranks the faster library first and omits the fact that decides the deployment.</text>
+</svg>
+
+Two properties of that chart are what a surge benchmark exists to surface, and neither is a rate. The first is the ceiling: GeoPandas has one and PyShp does not, and its position is a function of the node's memory rather than of anything in the code. The second is that the ceiling is *sharp*. There is no region where GeoPandas gets gradually slower under memory pressure and gives an operator a chance to notice — it runs at full speed right up to the point where the kernel kills it.
+
+That sharpness is why "we benchmarked at 100k and it was fine" is not evidence about 160k. On the fast library the transition from working to dead spans a few thousand features, and which side of it a given batch lands on depends on the geometry complexity of that particular extract, not just its row count.
+
+So the useful benchmark protocol is to search for the ceiling rather than to measure the plateau. Ramp the batch size until the process dies, record the feature count and the peak resident memory at the last success, and repeat with the most complex geometry mix you expect rather than with representative data. The output is a number you can compare against the node's headroom — which is the question the deployment actually asks — instead of a throughput figure that is true only in the region where the answer was never in doubt.
+
 ## Production Python Implementation
 
 The harness below is the single artifact that produces the results table. It synthesizes point-shapefile fixtures at increasing feature counts, times each library on bulk read, bulk write, and lazy per-feature iteration with a monotonic clock over several trials, converts every timing to features per second, and emits a structured audit record of the run — engine versions, hardware note, and per-operation medians — so a result is reproducible and defensible rather than a number someone once quoted. It uses type hints throughout, routes everything through `logging`, and handles a missing dependency or a corrupt fixture without aborting the whole sweep.
@@ -402,6 +437,41 @@ Tick every box before trusting a benchmark-driven library choice in production:
 - [ ] Peak resident memory is observed at the largest N, not just wall-clock time, so a device's memory ceiling is part of the decision.
 - [ ] The iterate benchmark actually touches each geometry, so the per-row boxing cost is measured rather than optimized away.
 - [ ] The chosen library per operation is recorded with its measured features-per-second so a reviewer can see why the design routes work the way it does.
+
+The other half of a surge benchmark is what the numbers do when the input stops looking like the test fixture.
+
+<svg viewBox="0 0 880 360" role="img" aria-labelledby="gm-t gm-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="gm-t">How geometry complexity moves the memory ceiling for the same feature count</title>
+  <desc id="gm-d">One hundred thousand features, benchmarked with four geometry mixes. Points peak at about 210 megabytes. Simple polygons averaging 40 vertices peak at about 640 megabytes. Digitised fire perimeters averaging 900 vertices peak at about 1.6 gigabytes. A single multipolygon perimeter with 14,000 vertices, which one agency's export routinely produces, peaks at about 2.4 gigabytes on its own. Against a 1.2 gigabyte field budget, the first two fit and the last two do not — so a benchmark run against point data reports a ceiling four times higher than the one the deployment will actually meet. Feature count is not the variable that determines whether a batch completes.</desc>
+  <rect x="0" y="0" width="880" height="360" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">100,000 features every time — only the geometry changes</text>
+  <rect x="300" y="86" width="98" height="30" rx="5" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="1.2"/>
+  <rect x="300" y="134" width="298" height="30" rx="5" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="1.2"/>
+  <rect x="300" y="182" width="512" height="30" rx="5" fill="var(--ember)" opacity="0.6" stroke="var(--ember)" stroke-width="1.4"/>
+  <rect x="300" y="230" width="512" height="30" rx="5" fill="var(--ember)" opacity="0.6" stroke="var(--ember)" stroke-width="1.4"/>
+  <path d="M812 182 l10 15 l-10 15" fill="none" stroke="var(--ember)" stroke-width="2"/>
+  <path d="M812 230 l10 15 l-10 15" fill="none" stroke="var(--ember)" stroke-width="2"/>
+  <g font-size="10.5" fill="currentColor">
+    <text x="8" y="106">points</text>
+    <text x="8" y="154">polygons · ~40 vertices</text>
+    <text x="8" y="202">perimeters · ~900 vtx — 1.6 GB</text>
+    <text x="8" y="250">one multipolygon · 14k vtx — 2.4 GB</text>
+  </g>
+  <g font-size="10" font-weight="700" fill="var(--crimson-deep)">
+    <text x="406" y="106">210 MB</text><text x="606" y="154">640 MB</text>
+  </g>
+  <path d="M556 76 V276" fill="none" stroke="var(--crimson-deep)" stroke-width="1.6" stroke-dasharray="5 4"/>
+  <text x="450" y="70" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">1.2 GB field budget</text>
+  <path d="M300 286 H820" fill="none" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <g font-size="10" text-anchor="middle" fill="var(--muted)">
+    <text x="300" y="304">0</text><text x="428" y="304">0.5</text><text x="556" y="304">1.0</text><text x="684" y="304">1.5</text><text x="812" y="304">2.0 GB+</text>
+  </g>
+  <text x="8" y="340" font-size="10.5" fill="currentColor">Benchmark against the worst geometry you accept, not the representative one — the ceiling is set by vertices, not rows.</text>
+</svg>
+
+The bottom row is not hypothetical padding. Hand-digitised fire perimeters accumulate vertices every time an analyst refines them, and a perimeter that has been edited across three operational periods routinely carries five figures of vertices in a single multipolygon. One such feature, on its own, exceeds the field budget — so a batch's fate can be decided by whether it happens to contain that one perimeter, which no row-count-based sizing rule can predict.
+
+The practical protections are unglamorous. Simplify geometries to a tolerance appropriate to the field use before they reach the device, which for a perimeter displayed at 1:24,000 removes most of those vertices without visible change. Assert a maximum vertex count per feature at the export boundary and route violations to review, so an unusually complex geometry is a caught exception rather than a killed process. And size the batch by total vertex count rather than by feature count — it is the quantity the memory actually tracks, and it is cheap to compute before committing to the read.
 
 ## Edge Cases and Gotchas
 

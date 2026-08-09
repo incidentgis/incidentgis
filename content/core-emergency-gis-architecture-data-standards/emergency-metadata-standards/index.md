@@ -14,6 +14,66 @@ dateModified: "2026-06-25"
 
 At hour 18 of a multi-county flood response, a state GIS analyst pulls a damage-assessment layer that three jurisdictions have all touched. It has no publication date, no contact authority, and no statement of how its geometry was derived. Nobody in the Emergency Operations Center (EOC) can answer the only question that matters before it feeds resource allocation: is this current, and who is accountable for it? The layer is silently a day stale, and engines are dispatched against parcels that were already cleared. Missing or untrusted metadata is not a documentation hygiene problem in emergency GIS — it is an operational failure vector that lets unattributed, undated, and unverifiable spatial data reach the Common Operating Picture (COP). This page specifies the deterministic metadata validation workflow that prevents that: a strict pre-ingestion gate that rejects any dataset lacking mandatory temporal, lineage, and contact fields, normalizes its declared coordinate reference, and emits an immutable, hash-anchored audit record. It implements the broader [Core Emergency GIS Architecture & Data Standards](https://www.incidentgis.com/core-emergency-gis-architecture-data-standards/) contract for metadata governance under National Incident Management System (NIMS), Federal Emergency Management Agency (FEMA), and ISO 22320 (the international standard for emergency management) reporting requirements.
 
+The four fields the gate insists on are not an arbitrary subset of ISO 19115-1 — they are the four that map one-to-one onto the questions an operations chief asks before trusting a layer. Everything else in the standard is useful for a catalogue; these four are what make the layer usable in a decision.
+
+<svg viewBox="0 0 880 420" role="img" aria-labelledby="anat-title anat-desc" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="anat-title">The four mandatory metadata blocks and the operational question each one answers</title>
+  <desc id="anat-desc">An ISO 19115-1 MD_Metadata record is drawn as a document containing four required blocks, each paired with the question it lets an operations chief answer. The dateStamp and CI_Date block, carrying publication and revision times in ISO 8601 UTC, answers whether the layer is current and by how long it is stale. The contact block, a CI_ResponsibleParty with authority, role and address, answers who is accountable for it. The lineage block, LI_Lineage with process steps and source datasets, answers how the geometry was derived. The referenceSystemInfo block, an RS_Identifier resolving to an EPSG code, answers whether the declared coordinate reference matches the data itself. A record missing any one of the four cannot answer its question, which is why the gate rejects rather than warns.</desc>
+  <rect x="0" y="0" width="880" height="420" fill="var(--blush)"/>
+  <text x="40" y="36" font-size="11" font-weight="700" fill="var(--crimson-deep)">Mandatory block</text>
+  <text x="520" y="36" font-size="11" font-weight="700" fill="var(--crimson-deep)">The question it answers</text>
+  <!-- document frame -->
+  <rect x="40" y="50" width="380" height="310" rx="10" fill="var(--cream)" stroke="var(--crimson)" stroke-width="2"/>
+  <text x="64" y="78" font-size="11.5" font-weight="700" fill="var(--crimson-deep)">gmd:MD_Metadata</text>
+  <!-- blocks -->
+  <g>
+    <rect x="64" y="96" width="332" height="54" rx="7" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.3"/>
+    <rect x="64" y="162" width="332" height="54" rx="7" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.3"/>
+    <rect x="64" y="228" width="332" height="54" rx="7" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.3"/>
+    <rect x="64" y="294" width="332" height="54" rx="7" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.3"/>
+  </g>
+  <g font-size="11" font-weight="700" fill="currentColor">
+    <text x="78" y="119">gmd:dateStamp / CI_Date</text>
+    <text x="78" y="185">gmd:contact</text>
+    <text x="78" y="251">gmd:lineage / LI_Lineage</text>
+    <text x="78" y="317">gmd:referenceSystemInfo</text>
+  </g>
+  <g font-size="10" fill="var(--muted)">
+    <text x="78" y="137">publication + revision, ISO 8601 UTC</text>
+    <text x="78" y="203">CI_ResponsibleParty · authority, role</text>
+    <text x="78" y="269">process steps + source datasets</text>
+    <text x="78" y="335">RS_Identifier → EPSG code</text>
+  </g>
+  <!-- leaders -->
+  <g stroke="var(--crimson)" stroke-width="1.5" fill="none">
+    <path d="M420 123 H516"/><path d="M420 189 H516"/><path d="M420 255 H516"/><path d="M420 321 H516"/>
+  </g>
+  <!-- questions -->
+  <g>
+    <rect x="520" y="96" width="330" height="54" rx="7" fill="var(--cream)" stroke="var(--crimson)" stroke-width="1.6"/>
+    <rect x="520" y="162" width="330" height="54" rx="7" fill="var(--cream)" stroke="var(--crimson)" stroke-width="1.6"/>
+    <rect x="520" y="228" width="330" height="54" rx="7" fill="var(--cream)" stroke="var(--crimson)" stroke-width="1.6"/>
+    <rect x="520" y="294" width="330" height="54" rx="7" fill="var(--cream)" stroke="var(--crimson)" stroke-width="1.6"/>
+  </g>
+  <g font-size="11.5" font-weight="700" fill="var(--crimson-deep)">
+    <text x="536" y="119">Is this current?</text>
+    <text x="536" y="185">Who is accountable for it?</text>
+    <text x="536" y="251">How was the geometry derived?</text>
+    <text x="536" y="317">Does the CRS match the data?</text>
+  </g>
+  <g font-size="10" fill="var(--muted)">
+    <text x="536" y="137">…and stale by exactly how long?</text>
+    <text x="536" y="203">…and reachable during this operational period?</text>
+    <text x="536" y="269">…surveyed, digitised, or inferred?</text>
+    <text x="536" y="335">…or was the header copied from a template?</text>
+  </g>
+  <text x="440" y="396" font-size="11" text-anchor="middle" fill="var(--muted)">A record missing any one block cannot answer its question — which is why the gate rejects rather than warns.</text>
+</svg>
+
+The distinction between rejecting and warning is the whole design. A warning is a message addressed to someone who is not in the room: the analyst who published the layer three hours ago in a different jurisdiction. During an incident, nobody triages warnings, so a gate that only warns is a gate that admits everything while producing a log that will read, at the after-action review, as though the system knew. Rejecting costs an agency a resubmission and costs the response nothing, because the alternative to a rejected layer is not a good layer — it is the previous good layer, which at least carries a known age.
+
+Note also what the fourth block guards against, since it is the least obvious. `referenceSystemInfo` is not asking the data what projection it is in; the data already knows. It is asking the *authoring agency* to declare what it believes, so the two claims can be compared. A record where the declared EPSG and the container's actual SRID disagree is not a data problem to be repaired silently — it is evidence that the metadata was templated rather than generated, which puts every other field in the record under suspicion.
+
 ## Prerequisites
 
 This workflow assumes a senior engineer's fluency with the Python geospatial stack and the following preconditions before any record is validated:
@@ -81,11 +141,9 @@ The validation gate treats every metadata payload as untrusted until it has clea
     <path d="M514 205 H530"/>
     <path d="M682 205 H698"/>
   </g>
-  <g font-size="10.5" font-weight="700" fill="var(--crimson-deep)">
-    <text x="354" y="198" text-anchor="middle">pass</text>
-    <text x="522" y="198" text-anchor="middle">pass</text>
-    <text x="690" y="198" text-anchor="middle">pass</text>
-  </g>
+  <!-- The gate-to-gate gaps are 18u wide, too narrow to letter without the
+       glyphs crossing a card edge. The solid arrow already means "passed",
+       and the legend at the foot says so — so the gap stays unlettered. -->
   <!-- Publish to operational catalog -->
   <path d="M775 166 V88 H532" fill="none" stroke="var(--crimson)" stroke-width="2" marker-end="url(#gate-arrow)"/>
   <text x="775" y="135" text-anchor="middle" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">all gates pass</text>
@@ -349,6 +407,55 @@ This metadata gate is the governance layer that the rest of the parent architect
 **Symptom: validation passes but the catalog write fails with a serialization error.** A `datetime` or `Decimal` slipped into the record after the `json.dumps` guard. Ensure every field is set before the serialization check, and keep the check as the last statement before `return`.
 
 **Symptom: rejection rate spikes above 5% during a surge.** A new agency joined the response with a non-conforming export profile. The SIEM alert should fire on `MAX_FAILURE_RATE`; triage the `rejection_reason` distribution to find the single dominant cause before treating it as a systemic gate failure.
+
+That last symptom deserves a picture, because the instinct it triggers is usually the wrong one. A rejection rate that quadruples looks like the gate has become too strict, and the pressure during a surge is to relax it. Comparing the *composition* of the rejections rather than their rate shows why that instinct misreads the data.
+
+<svg viewBox="0 0 880 360" role="img" aria-labelledby="rej-title rej-desc" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="rej-title">Composition of metadata rejections in steady state compared with hour six of a surge</title>
+  <desc id="rej-desc">Two full-width stacked bars showing what fraction of rejections each cause accounts for. In steady state, when 1.8 per cent of ingests are rejected, the causes are spread out: missing lineage 41 per cent, CRS mismatch 24 per cent, missing contact 19 per cent, stale date stamp 11 per cent and other causes 5 per cent. At hour six of a surge, when 7.4 per cent of ingests are rejected, a single new agency's non-conforming export profile accounts for 68 per cent of all rejections, while every other cause shrinks in share. The rate roughly quadrupled but the gate did not become stricter; one new participant arrived with one fixable export defect, which is a conversation with that agency rather than a reason to relax the contract.</desc>
+  <rect x="0" y="0" width="880" height="360" fill="var(--blush)"/>
+  <text x="200" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">share of all rejections, by cause</text>
+  <!-- steady state -->
+  <g font-size="11" fill="currentColor">
+    <text x="8" y="110" font-weight="700">steady state</text>
+    <text x="8" y="126" font-size="10" fill="var(--muted)">1.8% of ingests</text>
+  </g>
+  <g stroke="var(--blush)" stroke-width="1.5">
+    <rect x="200" y="86" width="254.2" height="52" fill="var(--crimson)"/>
+    <rect x="454.2" y="86" width="148.8" height="52" fill="var(--crimson-deep)"/>
+    <rect x="603" y="86" width="117.8" height="52" fill="var(--rose)"/>
+    <rect x="720.8" y="86" width="68.2" height="52" fill="var(--petal)"/>
+    <rect x="789" y="86" width="31" height="52" fill="var(--line-strong)"/>
+  </g>
+  <text x="216" y="117" font-size="10.5" font-weight="700" fill="var(--cream)">missing lineage · 41%</text>
+  <!-- surge -->
+  <g font-size="11" fill="currentColor">
+    <text x="8" y="220" font-weight="700">surge, hour 6</text>
+    <text x="8" y="236" font-size="10" fill="var(--muted)">7.4% of ingests</text>
+  </g>
+  <g stroke="var(--blush)" stroke-width="1.5">
+    <rect x="200" y="196" width="421.6" height="52" fill="var(--ember)"/>
+    <rect x="621.6" y="196" width="86.8" height="52" fill="var(--crimson)"/>
+    <rect x="708.4" y="196" width="55.8" height="52" fill="var(--crimson-deep)"/>
+    <rect x="764.2" y="196" width="37.2" height="52" fill="var(--rose)"/>
+    <rect x="801.4" y="196" width="18.6" height="52" fill="var(--line-strong)"/>
+  </g>
+  <text x="216" y="227" font-size="10.5" font-weight="700" fill="var(--on-fire)">one new agency's export profile · 68%</text>
+  <!-- legend -->
+  <g font-size="10.5" fill="currentColor">
+    <circle cx="206" cy="278" r="6" fill="var(--ember)"/><text x="220" y="282">non-conforming export profile</text>
+    <circle cx="436" cy="278" r="6" fill="var(--crimson)"/><text x="450" y="282">missing lineage</text>
+    <circle cx="606" cy="278" r="6" fill="var(--crimson-deep)"/><text x="620" y="282">CRS mismatch</text>
+    <circle cx="206" cy="304" r="6" fill="var(--rose)"/><text x="220" y="308">missing contact</text>
+    <circle cx="436" cy="304" r="6" fill="var(--petal)"/><text x="450" y="308">stale date stamp</text>
+    <circle cx="606" cy="304" r="6" fill="var(--line-strong)"/><text x="620" y="308">other</text>
+  </g>
+  <text x="440" y="340" font-size="11" text-anchor="middle" fill="var(--muted)">The rate quadrupled; the gate did not change. One participant arrived with one fixable defect.</text>
+</svg>
+
+Read as a rate, the surge looks like a gate that has started refusing work the response needs. Read as a composition, it is a single agency exporting a single malformed profile, and every other failure category has actually shrunk in absolute terms because the conforming agencies were unaffected. The remedy is a ten-minute conversation about an export template, not a policy change — and crucially, the policy change would have admitted that agency's undated, unattributed layers into the Common Operating Picture at exactly the hour when the most decisions per minute were being made against it.
+
+This is why the alert should be wired to the distribution and not only to the rate. A threshold on `MAX_FAILURE_RATE` tells you that something changed; the `rejection_reason` histogram tells you whether the change is one participant, one agency's tooling upgrade, or a genuine broadening across unrelated sources. Only the third of those is evidence that the gate itself needs attention, and in practice it is the rarest. Keep the histogram in the same dashboard panel as the rate, because a number without its composition invites precisely the reflex the surge cannot afford.
 
 ## Frequently Asked Questions
 

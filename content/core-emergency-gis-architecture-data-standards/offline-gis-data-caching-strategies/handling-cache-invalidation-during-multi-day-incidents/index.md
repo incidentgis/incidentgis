@@ -163,6 +163,46 @@ This is dangerous, not merely inconvenient, because a stale layer looks identica
   <path d="M775,380 C775,270 800,240 770,206" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="4 4" marker-end="url(#cacheinv-plain)" opacity="0.7"/>
 </svg>
 
+The framing that makes this tractable is to stop treating the cache as one artifact with one age. It is a bundle of layers whose useful lifetimes differ by three orders of magnitude.
+
+<svg viewBox="0 0 880 400" role="img" aria-labelledby="ci-t ci-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="ci-t">Each cached layer has its own decay clock, so one cache age answers nothing</title>
+  <desc id="ci-d">Six cached layers plotted on a logarithmic time axis by how long each stays operationally valid. Shelter status is valid for about fifteen minutes, the fire perimeter for about thirty, road closures for about an hour, and the hydrant network, parcel layer and routable road graph for a week or more. A single vertical marker shows the device eighteen hours since its last successful sync. Three layers are far past their validity and three are nowhere near it. A cache that reports one age for the whole artifact therefore cannot answer the only question that matters, which is whether the specific layer a crew is about to act on is still true.</desc>
+  <rect x="0" y="0" width="880" height="400" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">how long each layer stays true — and where the device actually is</text>
+  <rect x="240" y="96" width="97.9" height="26" rx="5" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.2"/>
+  <text x="8" y="114" font-size="10.5" fill="currentColor">fire perimeter</text>
+  <text x="345.9" y="114" font-size="9.5" font-weight="700" fill="var(--ember-text)">stale</text>
+  <rect x="240" y="138" width="140.0" height="26" rx="5" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.2"/>
+  <text x="8" y="156" font-size="10.5" fill="currentColor">road closures</text>
+  <text x="388.0" y="156" font-size="9.5" font-weight="700" fill="var(--ember-text)">stale</text>
+  <rect x="240" y="180" width="451.5" height="26" rx="5" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.2"/>
+  <text x="8" y="198" font-size="10.5" fill="currentColor">hydrant network</text>
+  <text x="699.5" y="198" font-size="9.5" font-weight="700" fill="var(--crimson-deep)">fresh</text>
+  <rect x="240" y="222" width="540.0" height="26" rx="5" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.2"/>
+  <text x="8" y="240" font-size="10.5" fill="currentColor">parcels</text>
+  <text x="788.0" y="240" font-size="9.5" font-weight="700" fill="var(--crimson-deep)">fresh</text>
+  <rect x="240" y="264" width="55.7" height="26" rx="5" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.2"/>
+  <text x="8" y="282" font-size="10.5" fill="currentColor">shelter status</text>
+  <text x="303.7" y="282" font-size="9.5" font-weight="700" fill="var(--ember-text)">stale</text>
+  <rect x="240" y="306" width="451.5" height="26" rx="5" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.2"/>
+  <text x="8" y="324" font-size="10.5" fill="currentColor">routable road graph</text>
+  <text x="699.5" y="324" font-size="9.5" font-weight="700" fill="var(--crimson-deep)">fresh</text>
+  <path d="M555.7 82 V352" fill="none" stroke="var(--crimson)" stroke-width="2" stroke-dasharray="5 4"/>
+  <text x="563.7" y="76" font-size="10.5" font-weight="700" fill="var(--crimson)">18 h since last sync</text>
+  <path d="M240 358 H800" fill="none" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <g font-size="10" text-anchor="middle" fill="var(--muted)">
+    <text x="240" y="376">6 min</text><text x="380" y="376">1 h</text><text x="520" y="376">10 h</text>
+    <text x="660" y="376">4 days</text><text x="800" y="376">6 weeks</text>
+  </g>
+</svg>
+
+Read against a device eighteen hours from its last successful sync, three of those six layers are far past any reasonable validity and three are nowhere close to theirs. A single "cache age: 18 h" indicator is therefore not merely coarse — it is wrong in both directions simultaneously. It understates the problem for the supervisor looking at a perimeter, and it overstates it for the crew looking at hydrants, who will start distrusting a parcel layer that is perfectly good and burn uplink re-fetching it.
+
+This is what turns invalidation from a bandwidth problem into a scheduling one. The uplink cannot carry the whole cache, but it does not need to: the layers that decay fastest are also, and not coincidentally, the smallest. A fire perimeter is a few hundred kilobytes of polygon; the routable road graph that never changes is the bulk of the artifact. Prioritising the refresh queue by decay rate rather than by staleness order means a two-minute connectivity window spends itself on the three layers that went stale and skips the three that did not, which is the difference between a device that reconnects usefully and one that stalls mid-transfer and falls back to everything it already had.
+
+The second consequence is about what the field application must display. If the layers have separate ages, the interface has to surface them separately — a per-layer age stamp on the legend, not a single banner. The failure this prevents is the specific one described above: a supervisor reading a perimeter with no visual cue that it is eighteen hours old, on a device whose overall status reads "synced" because the parcel layer came down forty minutes ago.
+
 ## Tiered Resolution Strategy
 
 Resolve staleness in ordered tiers, from the cheapest authoritative check down to a safe default that always flags the cache as suspect rather than silently serving old data. Never treat "the transfer failed" as "the cache is current."
@@ -172,6 +212,38 @@ Resolve staleness in ordered tiers, from the cheapest authoritative check down t
 3. **Invalidate on hash mismatch, not ETag alone.** When the server returns `200` with a new ETag, download the smallest available representation — a delta if the source supports it — and hash the bytes. Only a differing content hash marks the layer genuinely changed; an ETag that flipped without a content change is discarded as a false positive.
 4. **Swap atomically with a safe default.** Write the new layer to a temporary file, verify its hash against the manifest target, and atomically rename it over the live entry. If verification fails or the link drops, keep the previous known-good layer and mark it stale-but-serving so the device shows a freshness badge rather than a false-current map.
 5. **Emit an audit record for every invalidation.** Old hash, new hash, bytes transferred, reason, operational period, and timestamp — so the cache state during any operational period is reconstructable for after-action review.
+
+Quantifying the window makes the choice between the three obvious strategies unambiguous, which it is not when described in prose.
+
+<svg viewBox="0 0 880 340" role="img" aria-labelledby="dw-t dw-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="dw-t">Three refresh strategies against one 120-second connectivity window on a degraded uplink</title>
+  <desc id="dw-d">Transfer time on a logarithmic scale for three ways of refreshing a field cache over a 50 kilobyte per second degraded link. Re-downloading the whole 1.8 gigabyte cache takes about ten hours. Re-fetching only the three stale layers in full, about 31 megabytes, takes about ten minutes. Fetching deltas for those same three layers, about 480 kilobytes, takes 9.6 seconds. A dashed marker shows the 120-second window the device actually gets. Only the delta strategy finishes inside it, and it finishes with almost two minutes to spare; the other two stall part-way and leave the device on its stale copy, which is the same outcome as not having tried.</desc>
+  <rect x="0" y="0" width="880" height="340" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">one 120-second window on a 50 KB/s uplink — what actually completes</text>
+  <rect x="200" y="96" width="546.8" height="34" rx="6" fill="var(--ember)" opacity="0.55" stroke="var(--crimson-deep)" stroke-width="1.2"/>
+  <text x="8" y="118" font-size="10.5" font-weight="700" fill="currentColor">re-download everything</text>
+  <text x="754.8" y="118" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">1.8 GB · ~10 h</text>
+  <rect x="200" y="156" width="335.1" height="34" rx="6" fill="var(--ember)" opacity="0.75" stroke="var(--crimson-deep)" stroke-width="1.2"/>
+  <text x="8" y="178" font-size="10.5" font-weight="700" fill="currentColor">re-fetch stale layers whole</text>
+  <text x="543.1" y="178" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">31 MB · ~10 min</text>
+  <rect x="200" y="216" width="117.9" height="34" rx="6" fill="var(--crimson)" opacity="1.0" stroke="var(--crimson-deep)" stroke-width="1.2"/>
+  <text x="8" y="238" font-size="10.5" font-weight="700" fill="currentColor">delta only the stale layers</text>
+  <text x="325.9" y="238" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">480 KB · 9.6 s</text>
+  <path d="M449.5 84 V262" fill="none" stroke="var(--crimson-deep)" stroke-width="1.8" stroke-dasharray="5 4"/>
+  <text x="457.5" y="78" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">120 s window</text>
+  <path d="M200 272 H800" fill="none" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <g font-size="10" text-anchor="middle" fill="var(--muted)">
+    <text x="200" y="290">1 s</text><text x="320" y="290">10 s</text><text x="440" y="290">100 s</text>
+    <text x="560" y="290">17 min</text><text x="680" y="290">3 h</text><text x="800" y="290">28 h</text>
+  </g>
+  <text x="440" y="322" font-size="11" text-anchor="middle" fill="var(--muted)">A transfer that stalls leaves the device exactly where not trying would have left it.</text>
+</svg>
+
+The middle strategy is the one worth dwelling on, because it is the compromise most teams reach for and it does not work. Re-fetching only the stale layers sounds like the moderate option — it is two orders of magnitude better than re-downloading everything — and it still misses the window by a factor of five. A partial transfer is not partial credit: the device falls back to its stale copy, having spent its entire connectivity budget, and the next window starts from zero. Repeat that across a shift and the cache never advances at all while the sync log fills with attempts.
+
+The delta strategy wins by a margin large enough to absorb being wrong about the numbers. At 9.6 seconds against a 120-second window it survives a link that is five times slower than assumed, or a perimeter that changed five times more than expected, and still completes. That headroom is the actual design goal — not speed for its own sake, but a transfer small enough that the pathological case still finishes.
+
+One implementation note that the chart hides: the deltas are only small if the layers are content-addressed and diffable. A perimeter re-exported as a fresh GeoJSON with reordered vertices produces a delta the size of the whole layer, and the strategy silently collapses into the middle row. Canonicalise the geometry ordering before hashing, and assert on delta size in the sync job — a delta that approaches the layer size is a bug in the exporter, not a busy day.
 
 ## Production Python Implementation
 

@@ -194,6 +194,76 @@ Apply these in order. The earlier tiers are definitive fixes; the last is a safe
 5. **Commit in one transaction, in WAL mode.** Apply all reconciled rows inside a single `BEGIN`/`COMMIT` with `journal_mode=WAL` and a `busy_timeout`, so a lock contender waits instead of corrupting the merge, and any failure rolls the whole batch back.
 6. **Safe default: quarantine, don't guess.** Any record whose geometry fails validation or whose conflict can't be resolved by rule is written to a quarantine table with an audit flag for supervisor adjudication — never auto-merged and never dropped.
 
+The failure that makes this hard is not that clocks disagree. It is that `edit_date` answers a question nobody asked.
+
+<svg viewBox="0 0 880 400" role="img" aria-labelledby="ao-t ao-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="ao-t">Why edit_date cannot drive a two-way sync</title>
+  <desc id="ao-d">A feature is edited on a disconnected field device at 14:02 by its own clock and in ArcGIS Online at 14:05 by the server clock. The device reconnects at 15:40 and its edit arrives an hour and a half after the server's. Keyed on edit_date the device edit appears older and is discarded, even though the device edit was made against a base that already included everything the server knew, and was the more recent observation of the ground. Keyed on a per-replica change generation instead, the two edits are recognised as concurrent and go to the reconciler, which can apply the domain rule. The defect is not clock skew — both clocks may be perfectly correct — it is that arrival order and authoring order are different orderings and edit_date records neither reliably.</desc>
+  <rect x="0" y="0" width="880" height="400" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">arrival order and authoring order are different orderings — edit_date records neither reliably</text>
+  <path d="M180 300 H820" fill="none" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <g font-size="10" text-anchor="middle" fill="var(--muted)">
+    <text x="180" y="322">14:00</text><text x="340" y="322">14:30</text><text x="500" y="322">15:00</text>
+    <text x="660" y="322">15:30</text><text x="820" y="322">16:00</text>
+  </g>
+  <path d="M200 130 V300" fill="none" stroke="var(--crimson)" stroke-width="1.6" stroke-dasharray="4 4"/>
+  <circle cx="200" cy="120" r="9" fill="var(--crimson)"/>
+  <text x="214" y="112" font-size="10.5" font-weight="700" fill="currentColor">field device edits at 14:02</text>
+  <text x="214" y="128" font-size="9.5" fill="var(--muted)">offline · base already includes everything the server knew</text>
+  <path d="M216 206 V300" fill="none" stroke="var(--crimson)" stroke-width="1.6" stroke-dasharray="4 4"/>
+  <circle cx="216" cy="196" r="9" fill="var(--petal)" stroke="var(--crimson-deep)" stroke-width="2"/>
+  <text x="232" y="188" font-size="10.5" font-weight="700" fill="currentColor">ArcGIS Online edits at 14:05</text>
+  <text x="232" y="204" font-size="9.5" fill="var(--muted)">server clock, correct, three minutes later</text>
+  <path d="M212 132 Q440 176 690 254" fill="none" stroke="var(--ember)" stroke-width="2" stroke-dasharray="6 4"/>
+  <circle cx="700" cy="258" r="9" fill="var(--ember)"/>
+  <text x="440" y="246" font-size="10.5" font-weight="700" fill="var(--ember-text)">device reconnects 15:40 — arrives 95 minutes later</text>
+  <rect x="40" y="336" width="380" height="52" rx="9" fill="var(--cream)" stroke="var(--ember)" stroke-width="1.8"/>
+  <text x="58" y="358" font-size="10.5" font-weight="700" fill="var(--ember-text)">keyed on edit_date → discarded as older</text>
+  <text x="58" y="376" font-size="10" fill="currentColor">the more recent observation of the ground is the one thrown away</text>
+  <rect x="460" y="336" width="380" height="52" rx="9" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.8"/>
+  <text x="478" y="358" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">keyed on change generation → concurrent</text>
+  <text x="478" y="376" font-size="10" fill="currentColor">goes to the reconciler, where the domain rule applies</text>
+</svg>
+
+Both timestamps in that sequence are correct. The device's clock is right, the server's clock is right, and the device edit genuinely happened three minutes before the server edit. Keying the sync on `edit_date` still discards it, because the sync sees the two records in arrival order and the device's is older by the clock — so the more recent *observation of the ground*, made by the responder standing on it, loses to a server-side edit made by someone reading a screen.
+
+Replacing the timestamp with a per-replica change generation fixes it by recording what each editor had seen rather than when they acted. The device edited against a base that already included the server's prior state; the server edited against a base that did not include the device's. Neither generation dominates, so they are concurrent, and the resolver applies a domain rule instead of a clock comparison.
+
+The local side needs a matching piece of bookkeeping for that to be affordable.
+
+<svg viewBox="0 0 880 360" role="img" aria-labelledby="gp-t gp-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="gp-t">The three states a local GeoPackage row can be in, and what sync does with each</title>
+  <desc id="gp-d">Every row in the local GeoPackage carries a sync state. Clean rows match the last known server version and are skipped entirely by the sync, which is what keeps a two-minute window affordable. Locally edited rows are pushed with the base generation they were edited against, so the server can detect concurrency rather than trusting arrival order. Rows edited both locally and on the server since the last sync are conflicted and go to the reconciler with both versions intact. The important property is that state is recorded at edit time rather than derived at sync time by comparing full geometries — deriving it means reading and hashing the entire table on a device that has two minutes of connectivity.</desc>
+  <rect x="0" y="0" width="880" height="360" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">state is recorded when the edit happens, not derived when the sync runs</text>
+  <rect x="40" y="80" width="256" height="150" rx="9" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.5"/>
+  <rect x="312" y="80" width="256" height="150" rx="9" fill="var(--petal)" stroke="var(--crimson)" stroke-width="1.6"/>
+  <rect x="584" y="80" width="256" height="150" rx="9" fill="var(--cream)" stroke="var(--ember)" stroke-width="1.8"/>
+  <text x="60" y="108" font-size="11" font-weight="700" fill="currentColor">clean</text>
+  <text x="332" y="108" font-size="11" font-weight="700" fill="currentColor">locally edited</text>
+  <text x="604" y="108" font-size="11" font-weight="700" fill="var(--ember-text)">conflicted</text>
+  <text x="60" y="134" font-size="10" fill="currentColor">matches the last known</text>
+  <text x="60" y="150" font-size="10" fill="currentColor">server generation</text>
+  <text x="332" y="134" font-size="10" fill="currentColor">changed here since the</text>
+  <text x="332" y="150" font-size="10" fill="currentColor">last successful sync</text>
+  <text x="604" y="134" font-size="10" fill="currentColor">changed here and on the</text>
+  <text x="604" y="150" font-size="10" fill="currentColor">server since the last sync</text>
+  <text x="60" y="186" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">skipped entirely</text>
+  <text x="60" y="204" font-size="10" fill="currentColor">never read, never hashed</text>
+  <text x="332" y="186" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">pushed with its base generation</text>
+  <text x="332" y="204" font-size="10" fill="currentColor">so the server can see concurrency</text>
+  <text x="604" y="186" font-size="10.5" font-weight="700" fill="var(--ember-text)">to the reconciler</text>
+  <text x="604" y="204" font-size="10" fill="currentColor">both versions preserved</text>
+  <rect x="40" y="258" width="800" height="66" rx="9" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.6"/>
+  <text x="60" y="282" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">why not just diff the tables at sync time?</text>
+  <text x="60" y="302" font-size="10" fill="currentColor">Because diffing means reading and hashing every geometry in the layer, on a device with two minutes of</text>
+  <text x="60" y="318" font-size="10" fill="currentColor">connectivity. The state column turns an O(table) operation into an O(edits) one.</text>
+</svg>
+
+The state column is what makes the sync proportional to the number of edits rather than to the size of the layer. Without it, establishing which rows changed means reading and hashing every geometry in the GeoPackage — on a 200,000-feature regional layer, tens of seconds of local I/O before a single byte crosses the link, on a device whose entire connectivity window may be two minutes.
+
+Set the state in a trigger rather than in application code. Edits reach a local GeoPackage from more places than the sync client knows about — a field app, an ad-hoc QGIS session, a repair script — and a state column that only some writers maintain is worse than none, because the sync will confidently skip rows it believes are clean.
+
 ## Production Python implementation
 
 The following resolver implements the full path: bounded extraction with backoff, isolated staging, collision and tie reconciliation, a transactional WAL commit, and an immutable audit row per resolution. It assumes the delta arrives already CRS-normalised — axis-order and datum normalisation are owned upstream by [Real-Time Geocoding & Location Normalization](https://www.incidentgis.com/incident-mapping-multi-agency-sync-workflows/real-time-geocoding-location-normalization/), and feeding un-normalised coordinates in produces false overlap flags from projection drift.

@@ -180,6 +180,70 @@ Handle each flood update in ordered tiers, from the definitive fix down to a saf
 4. **Prefer the previous route when a fresh reroute fails validation (fallback).** If a recomputed path cannot be verified as edge-disjoint from the flood, hold the last known-good route for that origin, mark it degraded, and flag it for a human check rather than publishing an unverified path.
 5. **Emit an audit record for every mutation.** Each closed edge, each rerouted origin, and each unreachable zone is written with the flood-snapshot version so the entire routing decision is reproducible against the exact hazard state that produced it.
 
+Tier two says "reroute only the affected origins", and the reason is not primarily solver time.
+
+<svg viewBox="0 0 880 380" role="img" aria-labelledby="rr-t rr-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="rr-t">Recomputing every route versus recomputing only the affected origins</title>
+  <desc id="rr-d">A flood closure removes eleven edges from a road graph serving 340 evacuation origins. Recomputing shortest paths for all 340 costs about 6.8 seconds and produces 329 routes identical to the ones already published. Testing which current routes actually traverse a closed edge identifies 24 affected origins, and recomputing only those costs about 0.5 seconds. The saving is not merely time: republishing 340 routes when 24 changed forces every field device to re-download and re-render a route it already had, and makes it impossible for a supervisor to see at a glance which units are actually affected by the closure.</desc>
+  <rect x="0" y="0" width="880" height="380" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">11 edges closed · 340 evacuation origins</text>
+  <text x="8" y="96" font-size="10.5" font-weight="700" fill="currentColor">recompute everything</text>
+  <rect x="240" y="80" width="580" height="40" rx="6" fill="var(--ember)" opacity="0.45" stroke="var(--ember)" stroke-width="1.5"/>
+  <text x="256" y="105" font-size="10.5" font-weight="700" fill="currentColor">340 solves · 6.8 s</text>
+  <text x="240" y="140" font-size="10" fill="var(--ember-text)" font-weight="700">329 of them reproduce a route that was already published</text>
+  <text x="8" y="196" font-size="10.5" font-weight="700" fill="currentColor">test, then recompute</text>
+  <rect x="240" y="180" width="82" height="40" rx="6" fill="var(--petal)" stroke="var(--crimson-deep)" stroke-width="1.5"/>
+  <rect x="322" y="180" width="41" height="40" rx="6" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="1.5"/>
+  <text x="380" y="205" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">340 edge tests + 24 solves · 0.5 s</text>
+  <text x="240" y="240" font-size="10" fill="var(--crimson-deep)" font-weight="700">24 routes change — and a supervisor can see which units they belong to</text>
+  <path d="M240 268 H820" fill="none" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <g font-size="10" text-anchor="middle" fill="var(--muted)">
+    <text x="240" y="286">0 s</text><text x="410" y="286">2</text><text x="580" y="286">4</text><text x="750" y="286">6</text><text x="820" y="286">7 s</text>
+  </g>
+  <rect x="40" y="312" width="800" height="52" rx="9" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.6"/>
+  <text x="58" y="334" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">the republish cost is the real one</text>
+  <text x="58" y="352" font-size="10" fill="currentColor">340 route updates over a degraded uplink, to devices that already hold 329 of them unchanged</text>
+</svg>
+
+Six seconds against half a second is not, on its own, an argument during an incident. The argument is the 329 routes that would be republished unchanged. Every one of those is a message over the same degraded uplink the flood is already stressing, to a device that will re-render a route identical to the one on its screen — and, worse, an update that resets whatever progress indication the crew was following.
+
+The supervisory consequence matters more still. When 24 routes change out of 340, the set of affected units *is the answer to the question the operations chief is asking*: who has to turn around. Republishing everything destroys that signal by making every unit look affected. Computing the affected set explicitly is not an optimisation of the recompute; it is the output.
+
+The test itself is cheap and should be exact rather than spatial. Ask whether each published route's edge list intersects the closed-edge set — a set membership test per route — rather than testing whether the route's geometry intersects the flood polygon. The geometric version produces false positives on routes that pass near the flood without entering it and false negatives on routes whose geometry was simplified for transmission.
+
+Tier three is the one that cannot be skipped, and it must run after the graph edit rather than as part of the reroute.
+
+<svg viewBox="0 0 880 380" role="img" aria-labelledby="ur-t ur-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="ur-t">The check that must run after the graph edit, not before it</title>
+  <desc id="ur-d">After closing flooded edges, each evacuation zone centroid is tested for reachability to a safe destination. Zones one, two and four still have a path. Zone three does not: the closures have isolated it, and no rerouting can help because there is no route. The correct response is not to fall back to a penalised path through the flood, and not to leave the zone with a stale route that no longer exists; it is to escalate the zone as unreachable so that a human decides between shelter-in-place, a water rescue, or opening a contraflow segment. An isolated zone is a command decision, and the router's job is to surface it within seconds rather than to produce a route that looks plausible.</desc>
+  <rect x="0" y="0" width="880" height="380" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">after the edit: can every zone still reach a safe destination?</text>
+  <path d="M120 200 Q220 120 340 150 Q430 180 400 260 Q330 320 210 300 Q110 270 120 200 Z" fill="var(--petal-soft)" opacity="0.7" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <path d="M470 120 Q600 90 700 150 Q760 220 700 290 Q600 330 500 290 Q440 210 470 120 Z" fill="var(--petal-soft)" opacity="0.7" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <path d="M330 96 Q470 70 560 120 Q600 190 520 240 Q420 270 350 210 Q300 150 330 96 Z" fill="var(--ember)" opacity="0.25" stroke="var(--ember)" stroke-width="2" stroke-dasharray="6 4"/>
+  <text x="372" y="88" font-size="10" font-weight="700" fill="var(--ember-text)">flood extent + buffer</text>
+  <circle cx="180" cy="240" r="10" fill="var(--crimson)"/>
+  <circle cx="300" cy="278" r="10" fill="var(--crimson)"/>
+  <circle cx="452" cy="182" r="10" fill="var(--ember)"/>
+  <circle cx="640" cy="240" r="10" fill="var(--crimson)"/>
+  <g font-size="10" font-weight="700" fill="currentColor">
+    <text x="152" y="272">zone 1</text><text x="272" y="310">zone 2</text><text x="612" y="272">zone 4</text>
+  </g>
+  <text x="404" y="176" font-size="10" font-weight="700" fill="var(--ember-text)">zone 3</text>
+  <path d="M190 236 H760" fill="none" stroke="var(--crimson)" stroke-width="1.6" stroke-dasharray="4 4"/>
+  <text x="770" y="240" font-size="10" font-weight="700" fill="var(--crimson-deep)">safe</text>
+  <rect x="40" y="316" width="380" height="52" rx="9" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.6"/>
+  <text x="58" y="338" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">zones 1, 2, 4 — path exists, publish it</text>
+  <text x="58" y="356" font-size="10" fill="currentColor">rerouted where the closure touched them, unchanged otherwise</text>
+  <rect x="460" y="316" width="380" height="52" rx="9" fill="var(--cream)" stroke="var(--ember)" stroke-width="1.8"/>
+  <text x="478" y="338" font-size="10.5" font-weight="700" fill="var(--ember-text)">zone 3 — isolated, escalate</text>
+  <text x="478" y="356" font-size="10" fill="currentColor">shelter-in-place, water rescue, or contraflow — a command decision</text>
+</svg>
+
+A rerouter asked for a path where none exists will do one of two unhelpful things: fail per-origin, leaving those units with a stale route to a road that is under water, or — if `EVAC_PENALIZE_ONLY` is set — return a route straight through the flood at enormous cost, which is a technically valid answer to a question that should not have been asked. Neither is a decision anyone would make.
+
+Testing zone reachability explicitly turns it into one. An isolated zone is escalated as isolated, within seconds of the closure, to the person who can choose between shelter-in-place, tasking a water rescue, or opening a contraflow segment to restore access. That choice is not the router's to make, and the router's contribution is to make it visible before the units in that zone discover it by driving into it.
+
 ## Production Python Implementation
 
 The routine below carries the full resolution path over a `networkx` graph: flood intersection and edge closure, incremental rerouting of only affected origins, unreachable-zone detection, a safe fallback to the last valid route, structured logging, explicit exception handling, and an immutable audit record per mutation. Thresholds such as the safety buffer are parameters, not literals, so they are committed alongside the rest of the routing configuration. Senior-engineer assumptions apply: `networkx`, `shapely`, and `pyproj` are available; the graph edges carry a `geometry` and a `weight`; and the flood polygon and network share the projected coordinate frame established by the [coordinate reference system standard for disaster zones](https://www.incidentgis.com/core-emergency-gis-architecture-data-standards/coordinate-reference-systems-for-disaster-zones/).

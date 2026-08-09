@@ -154,6 +154,45 @@ Reconcile the stream in ordered tiers, from the definitive correction down to a 
 4. **Watermark and hold late data.** Advance a watermark a fixed lag behind the newest corrected event time. Anything older than the watermark is routed to a quarantine buffer for review rather than injected into an already-published window.
 5. **Fall back to receive time on gross skew (safe default).** If the estimated offset exceeds a versioned ceiling — a device booted at the 1970 epoch, or lost its real-time clock — do not trust device time at all. Use receive time as the event basis, mark the reading low-confidence, and emit an audit record.
 
+The reason clock skew is worth its own guide is that it corrupts a quantity nothing downstream re-derives: the order events happened in.
+
+<svg viewBox="0 0 880 380" role="img" aria-labelledby="sk-t sk-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="sk-t">Three sensors reporting one wind shift, as timestamped and as it happened</title>
+  <desc id="sk-d">Three weather sensors observe a wind shift crossing a fire from west to east. As it happened, sensor A registers first, then B forty seconds later, then C a further fifty seconds on — a clear west-to-east progression a duty officer can read as a moving front. As timestamped, sensor B's clock is 3 minutes fast and sensor C's is 90 seconds slow, so the reported order becomes B, then A, then C, with B appearing to lead by more than two minutes. The same three observations now describe a front moving the other way. No downstream process recovers the true order, because the only record of it was the timestamps.</desc>
+  <rect x="0" y="0" width="880" height="380" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">one wind shift, three sensors, two different stories</text>
+  <text x="8" y="84" font-size="10.5" font-weight="700" fill="currentColor">as it happened</text>
+  <path d="M180 130 H820" fill="none" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <circle cx="260" cy="130" r="10" fill="var(--crimson)"/>
+  <circle cx="380" cy="130" r="10" fill="var(--crimson)"/>
+  <circle cx="530" cy="130" r="10" fill="var(--crimson)"/>
+  <text x="248" y="112" font-size="10.5" font-weight="700" fill="currentColor">A</text>
+  <text x="368" y="112" font-size="10.5" font-weight="700" fill="currentColor">B</text>
+  <text x="518" y="112" font-size="10.5" font-weight="700" fill="currentColor">C</text>
+  <path d="M270 158 H520" fill="none" stroke="var(--crimson-deep)" stroke-width="1.8"/>
+  <path d="M520 158 l-9 -5 M520 158 l-9 5" fill="none" stroke="var(--crimson-deep)" stroke-width="1.8"/>
+  <text x="300" y="176" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">a front crossing west to east</text>
+  <text x="8" y="230" font-size="10.5" font-weight="700" fill="currentColor">as timestamped</text>
+  <path d="M180 276 H820" fill="none" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <circle cx="260" cy="276" r="10" fill="var(--ember)"/>
+  <circle cx="140" cy="276" r="10" fill="var(--ember)"/>
+  <circle cx="440" cy="276" r="10" fill="var(--ember)"/>
+  <text x="248" y="258" font-size="10.5" font-weight="700" fill="currentColor">A</text>
+  <text x="128" y="258" font-size="10.5" font-weight="700" fill="currentColor">B</text>
+  <text x="428" y="258" font-size="10.5" font-weight="700" fill="currentColor">C</text>
+  <text x="132" y="306" font-size="9.5" fill="var(--ember-text)">clock +3 min</text>
+  <text x="410" y="306" font-size="9.5" fill="var(--ember-text)">clock −90 s</text>
+  <path d="M430 328 H150" fill="none" stroke="var(--ember)" stroke-width="1.8"/>
+  <path d="M150 328 l9 -5 M150 328 l9 5" fill="none" stroke="var(--ember)" stroke-width="1.8"/>
+  <text x="200" y="348" font-size="10.5" font-weight="700" fill="var(--ember-text)">a front crossing east to west — the opposite conclusion</text>
+</svg>
+
+The two panels contain the same three observations. Only the ordering differs, and the ordering is the entire content of the inference a duty officer draws from them. A front moving toward a division is a reason to pull crews; a front moving away is a reason to hold. Nothing later in the pipeline can detect the substitution, because there is no other record of sequence — the timestamps *are* the sequence.
+
+This is what separates clock skew from ordinary data quality problems. A sensor reporting an implausible temperature is caught by a range check. A sensor reporting a plausible time that is three minutes wrong passes every check that exists, and corrupts a derived quantity rather than a reported one.
+
+The remedy has to attack the sequence directly rather than trying to fix the clocks. Record the gateway's arrival time alongside the sensor's own timestamp, so every reading carries two clocks and their difference is measurable per device. Skew that is stable is correctable — subtract the offset. Skew that drifts identifies a failing oscillator, and skew that jumps identifies a device that has just resynchronised, which is itself a signal that everything it reported since the last resync should be re-examined.
+
 ## Production Python Implementation
 
 The reconciler below carries the full resolution path: a trusted receive stamp, a smoothed per-device offset estimator, monotonic correction, watermark-based late detection with quarantine, a gross-skew fallback, structured logging, explicit exception handling, and an immutable audit record per adjustment. Thresholds are constructor parameters, not literals, so they can be committed and versioned with the rest of the [Python Toolchains for Public Safety GIS](https://www.incidentgis.com/python-toolchains-for-public-safety-gis/) build. Senior-engineer assumptions apply: timestamps are epoch seconds in Coordinated Universal Time, and the same feed's malformed payloads are handled separately when [recovering from corrupt geometry in streaming sensor ingest](https://www.incidentgis.com/core-emergency-gis-architecture-data-standards/geospatial-data-ingestion-pipelines/recovering-from-corrupt-geometry-in-streaming-sensor-ingest/).
@@ -298,6 +337,43 @@ class ClockSkewReconciler:
 ```
 
 The `audit_log` is the load-bearing output. Persisting it as a committed, content-hashed artifact lets a post-incident reviewer replay every offset that was applied and confirm that no reading was silently reordered or backdated — the same reproducibility guarantee the live feed needs when it also has to survive [MQTT and WebSocket delivery quirks](https://www.incidentgis.com/incident-mapping-multi-agency-sync-workflows/websocket-mqtt-for-live-incident-feeds/).
+
+Once both clocks are recorded, the per-device skew distribution tells you which remedy each device needs.
+
+<svg viewBox="0 0 880 380" role="img" aria-labelledby="sd2-t sd2-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="sd2-t">Three skew signatures, and the different fault each one indicates</title>
+  <desc id="sd2-d">Skew — the difference between a sensor's own timestamp and the gateway's arrival time — plotted over twelve hours for three devices. Device A holds a constant offset of about 42 seconds fast: its clock was never set correctly but runs true, so subtracting the measured offset corrects every reading it has ever sent. Device B drifts steadily from zero to about 180 seconds over the period: its oscillator is failing, so a single offset cannot correct it and the device needs replacing. Device C sits near zero, jumps abruptly to 240 seconds, then returns: it lost and regained time sync, and every reading between the jump and the return is suspect and should be re-examined rather than corrected. A single average skew figure would describe all three as roughly the same device.</desc>
+  <rect x="0" y="0" width="880" height="380" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">skew over 12 hours — three signatures, three different faults</text>
+  <text x="8" y="90" font-size="10" fill="var(--muted)">sensor clock − gateway clock</text>
+  <g stroke="var(--line-strong)" stroke-width="0.9" opacity="0.5">
+    <path d="M180 240 H820"/><path d="M180 180 H820"/><path d="M180 120 H820"/>
+  </g>
+  <g font-size="10" fill="var(--muted)">
+    <text x="140" y="304">0 s</text><text x="132" y="244">60</text><text x="128" y="184">120</text><text x="128" y="124">180</text><text x="128" y="64">240</text>
+  </g>
+  <path d="M180 300 H820" fill="none" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <path d="M180 60 V300" fill="none" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <path d="M180 258 L340 259 L500 257 L660 258 L820 258" fill="none" stroke="var(--crimson)" stroke-width="2.8"/>
+  <path d="M180 300 L340 262 L500 210 L660 158 L820 120" fill="none" stroke="var(--ember)" stroke-width="2.8"/>
+  <path d="M180 298 L380 299 L382 60 L620 60 L622 298 L820 299" fill="none" stroke="var(--crimson-deep)" stroke-width="2.8"/>
+  <text x="600" y="248" font-size="10.5" font-weight="700" fill="var(--crimson)">A — constant 42 s fast</text>
+  <text x="600" y="140" font-size="10.5" font-weight="700" fill="var(--ember-text)">B — drifting</text>
+  <text x="420" y="52" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">C — lost sync, then regained it</text>
+  <g font-size="10" text-anchor="middle" fill="var(--muted)">
+    <text x="180" y="320">0 h</text><text x="340" y="320">3</text><text x="500" y="320">6</text><text x="660" y="320">9</text><text x="820" y="320">12 h</text>
+  </g>
+  <text x="8" y="352" font-size="10.5" fill="currentColor">A: subtract the offset · B: replace the device · C: quarantine the interval, do not correct it</text>
+  <text x="8" y="370" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">A single average-skew figure would describe all three as the same device.</text>
+</svg>
+
+Device A is the easy case and the common one: a clock that was never set but keeps good time. One measured offset corrects its entire history, including data already stored, because the offset was constant throughout.
+
+Device B cannot be corrected with an offset because the offset is a function of time, and fitting a linear drift to it is a trap — the drift rate of a failing oscillator is itself unstable, so a correction calibrated this morning is wrong by evening. Flag it, keep its readings for trend purposes, and take it out of any sequencing decision.
+
+Device C is the one that most needs distinguishing, because averaging hides it completely. Its mean skew over the period is small, its median is near zero, and it spent three hours reporting times four minutes wrong. The readings inside that window cannot be corrected — the device did not know the time and neither does anyone else now — so the correct disposition is to quarantine that interval and re-examine any conclusion drawn from it.
+
+Export skew as a per-device time series, not as a summary statistic. The three signatures above are trivially distinguishable in a plot and indistinguishable in any single number you could put on a dashboard.
 
 ## Validation Checklist
 

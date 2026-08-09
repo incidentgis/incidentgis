@@ -161,6 +161,52 @@ Resolve the stream in ordered tiers, from the definitive fix down to a safe defa
 4. **Preserve per-key ordering.** Track the highest sequence seen per source. A replay carrying a sequence at or below the last applied value for that source is rejected even if the key store was trimmed, so a late replay can never overwrite newer COP state.
 5. **Suppress with a full audit record (safe default).** Every dropped message emits an entry — key, source, sequence, reason — so an after-action reviewer can confirm each suppression removed a true duplicate and no genuine update vanished.
 
+Everything in tier one turns on one distinction, and getting it wrong produces a deduplicator that is worse than no deduplicator because it looks like one.
+
+<svg viewBox="0 0 880 400" role="img" aria-labelledby="ik-t ik-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="ik-t">Which fields may enter the idempotency key, and which silently break it</title>
+  <desc id="ik-d">Seven candidate fields for an idempotency key. The agency identifier, incident identifier, sequence number and a hash of the payload body are all producer-controlled and stable across a republish, so they belong in the key. The broker's message identifier, the receiver's arrival timestamp and the topic partition are all transport metadata that changes when a message is replayed after a failover, so including any one of them produces a key that never repeats — which means the deduplicator runs, consumes resources, reports healthy, and suppresses nothing at all. The distinguishing test is whether the field would be identical if the same producer sent the same message twice.</desc>
+  <rect x="0" y="0" width="880" height="400" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">the test: would this field be identical if the producer sent the same message twice?</text>
+  <text x="8" y="76" font-size="10" fill="var(--muted)">candidate field</text>
+  <rect x="200" y="90" width="270" height="30" rx="6" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.5"/>
+  <text x="216" y="110" font-size="10.5" font-weight="700" fill="currentColor">agency_id</text>
+  <text x="490" y="110" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">in the key</text>
+  <text x="620" y="110" font-size="10" fill="var(--muted)">producer-controlled, stable</text>
+  <rect x="200" y="128" width="270" height="30" rx="6" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.5"/>
+  <text x="216" y="148" font-size="10.5" font-weight="700" fill="currentColor">incident_id</text>
+  <text x="490" y="148" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">in the key</text>
+  <text x="620" y="148" font-size="10" fill="var(--muted)">producer-controlled, stable</text>
+  <rect x="200" y="166" width="270" height="30" rx="6" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.5"/>
+  <text x="216" y="186" font-size="10.5" font-weight="700" fill="currentColor">sequence_number</text>
+  <text x="490" y="186" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">in the key</text>
+  <text x="620" y="186" font-size="10" fill="var(--muted)">producer-controlled, stable</text>
+  <rect x="200" y="204" width="270" height="30" rx="6" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.5"/>
+  <text x="216" y="224" font-size="10.5" font-weight="700" fill="currentColor">payload body hash</text>
+  <text x="490" y="224" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">in the key</text>
+  <text x="620" y="224" font-size="10" fill="var(--muted)">producer-controlled, stable</text>
+  <rect x="200" y="242" width="270" height="30" rx="6" fill="var(--cream)" stroke="var(--ember)" stroke-width="1.5"/>
+  <text x="216" y="262" font-size="10.5" font-weight="700" fill="currentColor">broker message_id</text>
+  <text x="490" y="262" font-size="10.5" font-weight="700" fill="var(--ember-text)">never in the key</text>
+  <text x="620" y="262" font-size="10" fill="var(--muted)">regenerated on republish</text>
+  <rect x="200" y="280" width="270" height="30" rx="6" fill="var(--cream)" stroke="var(--ember)" stroke-width="1.5"/>
+  <text x="216" y="300" font-size="10.5" font-weight="700" fill="currentColor">received_at timestamp</text>
+  <text x="490" y="300" font-size="10.5" font-weight="700" fill="var(--ember-text)">never in the key</text>
+  <text x="620" y="300" font-size="10" fill="var(--muted)">differs on every delivery</text>
+  <rect x="200" y="318" width="270" height="30" rx="6" fill="var(--cream)" stroke="var(--ember)" stroke-width="1.5"/>
+  <text x="216" y="338" font-size="10.5" font-weight="700" fill="currentColor">topic partition</text>
+  <text x="490" y="338" font-size="10.5" font-weight="700" fill="var(--ember-text)">never in the key</text>
+  <text x="620" y="338" font-size="10" fill="var(--muted)">reassigned on failover</text>
+  <rect x="200" y="356" width="640" height="34" rx="7" fill="var(--cream)" stroke="var(--ember)" stroke-width="1.6"/>
+  <text x="216" y="378" font-size="10.5" font-weight="700" fill="var(--ember-text)">one transport field in the key = a deduplicator that suppresses nothing and reports healthy</text>
+</svg>
+
+The failure is specific and quiet. Include the broker's `message_id` and every replayed message hashes to a key that has never been seen, so nothing is suppressed. The dedup store fills, the counters increment, the health check passes — and duplicate incidents land in the Common Operating Picture at exactly the rate they would without the layer. Nobody investigates a component that is running.
+
+The rule that catches all three bad fields is to ask whether the producer controls the value. `agency_id`, `incident_id` and `sequence_number` are written by the device that observed the incident and travel with the payload; a republish carries the identical values because it is the identical payload. `message_id`, arrival time and partition are assigned by the transport, and the whole premise of a failover is that the transport changed.
+
+Hashing the payload body alongside the identifiers is worth the extra bytes. It catches the case where a producer reuses a sequence number after a restart — genuinely different content under a colliding identifier — which the identifier triple alone would suppress as a duplicate. That is the opposite error and rarer, but it loses real data rather than admitting redundant data, so it deserves the cheaper defence.
+
 ## Production Python Implementation
 
 The consumer below carries the full resolution path: idempotency-key derivation, a bounded dedup window with time and size limits, per-source ordering enforcement, exactly-once effect application, structured logging, explicit exception handling, and an immutable audit record for every suppressed replay. The dedup window and ordering map are shown in-process for clarity; in production, back them with a durable store (Redis with a TTL, or a small table) so the window survives a consumer restart. Thresholds are parameters, not literals, so they can be committed alongside the feed contract. Senior-engineer assumptions apply: message payloads are already decoded dictionaries, and the effect applier is injected so this component stays transport- and schema-agnostic.
@@ -298,6 +344,36 @@ class ReplayDeduplicator:
 ```
 
 The `audit_log` is the load-bearing output. Persisted as a committed, append-only artifact, it lets a post-incident reviewer replay every decision and confirm that each suppression removed a true duplicate — the reproducibility guarantee that keeps a deduplicated feed defensible and interoperable with downstream [conflict resolution in multi-agency edits](https://www.incidentgis.com/incident-mapping-multi-agency-sync-workflows/conflict-resolution-in-multi-agency-edits/).
+
+Tier two says "bounded by both time and entry count", and the conjunction is doing real work — each bound alone fails, in opposite directions.
+
+<svg viewBox="0 0 880 380" role="img" aria-labelledby="bw-t bw-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="bw-t">Why the dedup window needs both a time bound and an entry bound</title>
+  <desc id="bw-d">Two failure modes bound the deduplication store from different directions. Bounded only by time, at a 24-hour window, a surge producing 90,000 messages an hour accumulates 2.16 million keys and the store exhausts memory before the window expires. Bounded only by entry count, at 100,000 entries, that same surge evicts the oldest keys after about 67 minutes, so a broker failover replaying messages from 90 minutes earlier finds none of them remembered and every replayed message is admitted as new. Applying both bounds together means the store is capped in memory and the eviction age is observable: when entries start being evicted below the intended time window, that is a signal to raise the cap, not a silent loss of protection.</desc>
+  <rect x="0" y="0" width="880" height="380" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">a surge at 90,000 messages/hour, against each bound alone</text>
+  <rect x="40" y="76" width="380" height="200" rx="9" fill="var(--cream)" stroke="var(--ember)" stroke-width="1.8"/>
+  <rect x="460" y="76" width="380" height="200" rx="9" fill="var(--cream)" stroke="var(--ember)" stroke-width="1.8"/>
+  <text x="60" y="104" font-size="11" font-weight="700" fill="currentColor">time bound only · 24 h</text>
+  <text x="480" y="104" font-size="11" font-weight="700" fill="currentColor">entry bound only · 100 k</text>
+  <text x="60" y="136" font-size="10.5" fill="currentColor">2,160,000 keys accumulate before</text>
+  <text x="60" y="154" font-size="10.5" fill="currentColor">anything expires</text>
+  <text x="480" y="136" font-size="10.5" fill="currentColor">oldest keys evicted after ~67 min</text>
+  <text x="480" y="154" font-size="10.5" fill="currentColor">of surge traffic</text>
+  <text x="60" y="192" font-size="11" font-weight="700" fill="var(--ember-text)">the store runs out of memory</text>
+  <text x="60" y="212" font-size="10" fill="currentColor">and takes the consumer with it</text>
+  <text x="480" y="192" font-size="11" font-weight="700" fill="var(--ember-text)">a 90-minute replay is all new</text>
+  <text x="480" y="212" font-size="10" fill="currentColor">protection silently lapses</text>
+  <text x="60" y="248" font-size="10" fill="var(--muted)">loud failure — you find out</text>
+  <text x="480" y="248" font-size="10" fill="var(--muted)">silent failure — you do not</text>
+  <rect x="40" y="296" width="800" height="60" rx="9" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.8"/>
+  <text x="60" y="322" font-size="11" font-weight="700" fill="var(--crimson-deep)">both bounds together</text>
+  <text x="60" y="342" font-size="10.5" fill="currentColor">memory is capped, and the eviction age becomes an observable: evicting below the intended window is an alert, not a loss.</text>
+</svg>
+
+The asymmetry is what decides the design. Running out of memory is a loud failure: the consumer dies, something pages, and the fix is obvious. A lapsed window is silent, and it lapses precisely during a surge — the condition that also makes a broker failover likely, which is the condition the deduplicator exists for. So the entry bound is not a safety net for the time bound; it is the thing that will actually fire, and its firing must be visible.
+
+That is why the useful instrumentation is not the store's size but the *age of the oldest entry it still holds*. When that age is 24 hours, the time bound is governing and everything is nominal. When it drops to 67 minutes, the entry cap is governing, the effective protection window has shrunk by a factor of twenty, and somebody should know before the failover rather than after it. Export it as a gauge and alert on it falling below the intended window — it is one metric that turns the silent failure into the loud one.
 
 ## Validation Checklist
 

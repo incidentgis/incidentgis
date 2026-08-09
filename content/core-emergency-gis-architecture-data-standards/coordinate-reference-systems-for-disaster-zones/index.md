@@ -95,8 +95,8 @@ The workflow is a four-stage pipeline: a boundary guard that rejects untagged ge
   </defs>
   <g font-size="12.5" text-anchor="middle" fill="currentColor">
     <!-- inbound -->
-    <text x="48" y="78" font-size="12">heterogeneous</text>
-    <text x="48" y="94" font-size="12">feeds</text>
+    <text x="6" y="78" font-size="12" text-anchor="start">mixed-CRS</text>
+    <text x="6" y="94" font-size="12" text-anchor="start">feeds</text>
     <!-- stage boxes -->
     <rect x="100" y="56" width="150" height="56" rx="7" fill="none" stroke="currentColor" stroke-width="1.4"/>
     <text x="175" y="80" font-weight="600">1 · Boundary Guard</text>
@@ -259,6 +259,59 @@ def align_raster_to_crs(
         logger.error("Raster alignment failed: %s", exc)
         raise
 ```
+
+A raster aligned to the wrong operational CRS is the single most common way a correct pipeline produces incorrect answers, because the wrong choice here is also the most convenient one. Web Mercator (EPSG:3857) is what every tile server speaks, so it is the projection a raster is already in when it arrives and the one it must be in to render. The temptation is to leave it there and run the analysis in the same frame. The cost of doing so is not a rounding error — it is a multiplier that grows with latitude, because Web Mercator's area scale factor is the square of the secant of the latitude.
+
+<figure class="diagram">
+<svg viewBox="0 0 880 380" role="img" aria-labelledby="webmerc-title webmerc-desc" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="webmerc-title">Web Mercator area distortion against latitude, compared with UTM</title>
+  <desc id="webmerc-desc">A line chart of area scale factor against the latitude of the incident. Web Mercator's area scale factor is the square of the secant of the latitude, so it starts at 1.0 at the equator, reaches 1.33 at 30 degrees, exactly 2.0 at 45 degrees, 4.0 at 60 degrees, and 8.5 at 70 degrees. A burn scar measured in Web Mercator at 45 degrees north therefore reads twice its true area, and at 60 degrees four times. Universal Transverse Mercator and State Plane stay flat within about one part in a thousand at every latitude, which is why area and distance work must be reprojected into a local projected system rather than analysed in the tiling projection.</desc>
+  <rect x="0" y="0" width="880" height="380" fill="var(--blush)"/>
+  <text x="8" y="56" font-size="10.5" fill="var(--muted)">area scale factor</text>
+  <!-- gridlines -->
+  <g stroke="var(--line-strong)" stroke-width="0.9" opacity="0.5">
+    <path d="M180 270 H820"/><path d="M180 210 H820"/><path d="M180 150 H820"/><path d="M180 90 H820"/>
+  </g>
+  <g font-size="10" fill="var(--muted)">
+    <text x="140" y="304">1×</text>
+    <text x="140" y="274">2×</text>
+    <text x="140" y="214">4×</text>
+    <text x="140" y="94">8×</text>
+  </g>
+  <!-- axes -->
+  <path d="M180 300 H820" fill="none" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <path d="M180 60 V300" fill="none" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <!-- UTM: flat -->
+  <path d="M180 299 H820" fill="none" stroke="var(--crimson-deep)" stroke-width="2.4"/>
+  <!-- Web Mercator: sec squared latitude -->
+  <path d="M180 300 L225.7 299.8 L271.4 299.1 L317.1 297.8 L362.8 296.0 L408.5 293.5 L454.2 290.0 L499.9 285.3 L545.6 278.9 L591.3 270.0 L637.0 257.4 L682.7 238.9 L728.4 210.0 L774.1 162.1 L819.8 73.5" fill="none" stroke="var(--crimson)" stroke-width="2.6"/>
+  <!-- markers -->
+  <circle cx="591.3" cy="270" r="6" fill="var(--crimson)"/>
+  <circle cx="728.4" cy="210" r="6" fill="var(--crimson)"/>
+  <g font-size="10.5" font-weight="700" fill="var(--crimson-deep)">
+    <text x="452" y="262">45° N — areas read double</text>
+    <text x="560" y="200">60° N — areas read quadruple</text>
+  </g>
+  <text x="612" y="120" font-size="11" font-weight="700" fill="var(--crimson)">Web Mercator (EPSG:3857)</text>
+  <text x="190" y="292" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">UTM / State Plane — flat within 0.1% at every latitude</text>
+  <!-- x axis -->
+  <g font-size="10" text-anchor="middle" fill="var(--muted)">
+    <text x="180" y="322">0°</text>
+    <text x="271.4" y="322">10°</text>
+    <text x="362.8" y="322">20°</text>
+    <text x="454.2" y="322">30°</text>
+    <text x="545.6" y="322">40°</text>
+    <text x="637" y="322">50°</text>
+    <text x="728.4" y="322">60°</text>
+    <text x="819.8" y="322">70°</text>
+    <text x="500" y="346" font-size="11">latitude of the incident</text>
+  </g>
+  <text x="440" y="370" font-size="11" text-anchor="middle" fill="var(--muted)">The distortion is not a constant to calibrate away — it changes across the incident itself.</text>
+</svg>
+<figcaption>Web Mercator area error grows as sec²φ, so the same burn scar reads double at 45° N and quadruple at 60° N; UTM stays flat.</figcaption>
+</figure>
+
+Two things follow. The first is the obvious one: a burn scar, flood extent or search area computed in EPSG:3857 at temperate latitudes is wrong by a factor that rounds to "twice", and no amount of downstream precision recovers it. The second is subtler and is the reason a single correction factor is not an acceptable workaround — the distortion varies *across* the incident. A fire spanning one degree of latitude at 45° N has a different area scale at its northern edge than at its southern one, so a uniform correction mis-states the shape as well as the size, and any per-parcel damage assessment inherits that gradient. Reproject into the incident's UTM zone, do the arithmetic there, and transform back only to draw.
 
 ### Step 4 — Persist with schema-level SRID enforcement
 

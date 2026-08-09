@@ -148,6 +148,37 @@ Resolve the location in ordered tiers, from the most authoritative method down t
 4. **Snap to the route or nearest addressed feature (hardening).** Where a milepost falls near a gap in calibration, snap the interpolated point onto the route line so it never floats off the road, and cross-check against the nearest known addressed feature.
 5. **Hold as unresolved with a low-confidence default and audit flag (safe default).** If no route matches or no intersection exists, return the jurisdiction centroid at minimum confidence, mark the record unresolved, and emit an audit entry so a dispatcher confirms before dispatch — never a fabricated precise coordinate.
 
+Rural location references are not addresses with pieces missing — they are a different addressing system, and the shapes they arrive in are surprisingly few.
+
+<svg viewBox="0 0 880 400" role="img" aria-labelledby="mp-t mp-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="mp-t">Four shapes of rural location reference and how each resolves to a coordinate</title>
+  <desc id="mp-d">Four kinds of location text that arrive from rural dispatch. A milepost reference such as US-550 MP 42.7 resolves by linear referencing along the route geometry and is accurate to roughly the marker spacing. A cross-street reference such as CR-14 at CR-9 resolves to the intersection node of the two centrelines and is accurate to the intersection itself. A distance-and-bearing reference such as 2.4 miles north of Cuba on US-84 resolves by measuring along the route from a named anchor. A landmark reference such as the Ranger Station at Gallina resolves only through a curated gazetteer of named places, and fails entirely if no gazetteer entry exists. The first three are computable from data an agency already holds; the fourth is a data-collection problem disguised as a parsing problem.</desc>
+  <rect x="0" y="0" width="880" height="400" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">four shapes, three of them computable from route geometry you already have</text>
+  <rect x="40" y="72" width="800" height="70" rx="9" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.6"/>
+  <text x="60" y="96" font-size="11" font-weight="700" font-family="var(--font-mono)" fill="currentColor">US-550 MP 42.7</text>
+  <text x="60" y="116" font-size="10" fill="currentColor">linear reference along the route geometry · accurate to roughly the marker spacing</text>
+  <text x="60" y="133" font-size="9.5" fill="var(--muted)">needs: routed centrelines with measures</text>
+  <rect x="40" y="154" width="800" height="70" rx="9" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.6"/>
+  <text x="60" y="178" font-size="11" font-weight="700" font-family="var(--font-mono)" fill="currentColor">CR-14 at CR-9</text>
+  <text x="60" y="198" font-size="10" fill="currentColor">intersection node of the two centrelines · accurate to the intersection itself</text>
+  <text x="60" y="215" font-size="9.5" fill="var(--muted)">needs: a noded road graph and consistent route naming</text>
+  <rect x="40" y="236" width="800" height="70" rx="9" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.6"/>
+  <text x="60" y="260" font-size="11" font-weight="700" font-family="var(--font-mono)" fill="currentColor">2.4 mi N of Cuba on US-84</text>
+  <text x="60" y="280" font-size="10" fill="currentColor">measured along the route from a named anchor · accurate to the anchor plus the measure</text>
+  <text x="60" y="297" font-size="9.5" fill="var(--muted)">needs: place anchors on the route, and a direction convention</text>
+  <rect x="40" y="318" width="800" height="70" rx="9" fill="var(--cream)" stroke="var(--ember)" stroke-width="2"/>
+  <text x="60" y="342" font-size="11" font-weight="700" font-family="var(--font-mono)" fill="var(--ember-text)">Ranger Station at Gallina</text>
+  <text x="60" y="362" font-size="10" fill="currentColor">resolvable only through a curated gazetteer — no geometry can infer it</text>
+  <text x="60" y="379" font-size="9.5" fill="var(--muted)">a data-collection problem wearing a parsing problem's clothes</text>
+</svg>
+
+Separating the four is what makes the parser tractable, because each has a distinct grammar and a distinct data dependency. Mileposts need routed centrelines carrying measures; cross-streets need a properly noded graph and consistent route naming between the dispatch system and the road layer; distance-and-bearing needs anchors and a direction convention. All three are things a state or county DOT already maintains, and all three fail in ways a validator can describe precisely — "route US-550 has no measure at 42.7" is an actionable message.
+
+The fourth is categorically different and should be treated as such rather than parsed harder. No amount of string handling turns "the Ranger Station at Gallina" into a coordinate; only a gazetteer entry does. The productive response is to log every unresolved landmark reference with its verbatim text and review the list monthly — rural dispatch reuses the same few dozen landmarks, so a gazetteer built from actual traffic reaches high coverage quickly, whereas one built by imagining what responders might say does not.
+
+The direction convention deserves a specific warning. "North of" in dispatch usage frequently means *along the route in the increasing-measure direction* rather than true north, and on a road that runs east-west for a stretch the two differ by ninety degrees. Confirm which convention the agency uses before implementing, and record the assumption in the audit block, because a 2.4-mile error in the wrong direction on a rural highway is a very long drive.
+
 ## Production Python Implementation
 
 The routine below carries the full resolution path: parsing the reported text, milepost interpolation via linear referencing, cross-street intersection with hint-based disambiguation, confidence scoring, structured logging, explicit exception handling, and an immutable audit record for every derived point. Thresholds and the reference layers are injected rather than hard-coded, so the same resolver runs against any jurisdiction's route and centerline data. Senior-engineer assumptions apply: `shapely` and `geopandas` are available, all reference layers are pre-projected to a common metric coordinate reference system, and route measures are stored as an ascending `m_start`/`m_end` calibration per segment.
@@ -328,6 +359,43 @@ class RuralLocationNormalizer:
 ```
 
 The `audit_log` is the load-bearing output. Persisting it as a committed, content-hashed artifact lets a post-incident reviewer replay every normalization and confirm that no coordinate was fabricated from a bad route match — and it lets the [address-standardization path for 911 logs](https://www.incidentgis.com/python-toolchains-for-public-safety-gis/python-etl-for-sensor-iot-data/automating-address-standardization-for-911-logs/) reuse the same audit contract for the addressed calls that arrive on the same feed.
+
+One number decides how much any of this is worth, and it is not the parser's success rate.
+
+<svg viewBox="0 0 880 340" role="img" aria-labelledby="ms-t ms-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="ms-t">Positional uncertainty of each rural reference type, against what a responder needs</title>
+  <desc id="ms-d">Uncertainty in metres for four ways of locating a rural incident. A cross-street resolution is accurate to the intersection itself, within about 20 metres. A milepost resolved by linear referencing is accurate to roughly half the marker spacing, about 400 metres where markers are spaced at 0.5 miles. A distance-and-bearing reference inherits both the anchor's uncertainty and the reported distance's rounding, around 800 metres. A landmark resolved from a gazetteer is as good as the gazetteer entry, typically 150 metres. Against these, a structure fire needs the responder within sight of the address, roughly 100 metres, while a highway collision only needs the correct side of the correct segment, roughly 800 metres. Milepost precision is adequate for the incident types that actually occur on mileposted roads, which is why the coarse answer is usually the right one.</desc>
+  <rect x="0" y="0" width="880" height="340" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">positional uncertainty by reference type, against what the incident actually needs</text>
+  <rect x="260" y="86" width="14" height="26" rx="4" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="1.2"/>
+  <rect x="260" y="128" width="280" height="26" rx="4" fill="var(--petal)" stroke="var(--crimson-deep)" stroke-width="1.2"/>
+  <rect x="260" y="170" width="560" height="26" rx="4" fill="var(--petal)" stroke="var(--crimson-deep)" stroke-width="1.2"/>
+  <rect x="260" y="212" width="105" height="26" rx="4" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="1.2"/>
+  <g font-size="10.5" fill="currentColor">
+    <text x="8" y="104">cross-street node</text>
+    <text x="8" y="146">milepost · 0.5 mi markers</text>
+    <text x="8" y="188">distance and bearing</text>
+    <text x="8" y="230">gazetteer landmark</text>
+  </g>
+  <g font-size="10" font-weight="700" fill="var(--crimson-deep)">
+    <text x="284" y="104">20 m</text><text x="550" y="146">400 m</text><text x="640" y="188">800 m</text><text x="375" y="230">150 m</text>
+  </g>
+  <path d="M330 76 V254" fill="none" stroke="var(--ember)" stroke-width="1.6" stroke-dasharray="5 4"/>
+  <text x="338" y="70" font-size="10" font-weight="700" fill="var(--ember-text)">structure fire needs ~100 m</text>
+  <path d="M820 76 V254" fill="none" stroke="var(--crimson-deep)" stroke-width="1.6" stroke-dasharray="5 4"/>
+  <text x="612" y="70" font-size="10" font-weight="700" fill="var(--crimson-deep)">highway collision needs ~800 m</text>
+  <path d="M260 266 H820" fill="none" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <g font-size="10" text-anchor="middle" fill="var(--muted)">
+    <text x="260" y="284">0</text><text x="400" y="284">200</text><text x="540" y="284">400</text><text x="680" y="284">600</text><text x="820" y="284">800 m</text>
+  </g>
+  <text x="8" y="322" font-size="10.5" fill="currentColor">Milepost precision is adequate for the incidents that actually happen on mileposted roads.</text>
+</svg>
+
+Read against what each incident type needs, the coarse answers stop looking like failures. A milepost resolution with 400 metres of uncertainty is useless for a structure fire and entirely adequate for a highway collision — and highway collisions are what happens on mileposted highways. The reference type and the incident type are correlated, so the apparent mismatch between "we can only get within 400 metres" and "responders need 100" mostly does not arise in practice.
+
+What follows is that the resolver should publish the uncertainty alongside the coordinate rather than only the coordinate. A dispatcher looking at a marker with a 400-metre radius drawn around it knows to expect a search; one looking at a bare point does not, and will report the marker as wrong when the unit arrives and sees nothing. The radius is the difference between a coarse answer and a wrong one.
+
+It also gives the review queue a sensible priority. An unresolved landmark on a rural highway is worth a gazetteer entry; an unresolved cross-street in a jurisdiction whose road graph should have that node is a data defect in the road layer. Sorting the queue by reference type rather than by age puts the fixable-once problems at the top.
 
 ## Validation Checklist
 

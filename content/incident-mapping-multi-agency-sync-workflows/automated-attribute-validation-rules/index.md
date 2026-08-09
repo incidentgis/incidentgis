@@ -109,7 +109,7 @@ Production-grade validation is not a single function call — it executes across
     <path d="M676,290 Q470,380 438,344"/>
   </g>
   <g font-size="9.5" fill="currentColor" text-anchor="middle">
-    <text x="466" y="113" fill="var(--crimson, currentColor)">pass</text>
+    <text x="458" y="113" fill="var(--crimson, currentColor)">pass</text>
     <text x="392" y="190" fill="var(--crimson, currentColor)">fail</text>
     <text x="747" y="216">audit across replicas</text>
   </g>
@@ -215,6 +215,71 @@ The hardest defects are inter-field contradictions a single-field validator cann
         return self
 ```
 
+The rule is easier to get right when it is written down as a table of admissible pairs rather than as a chain of conditionals, because the shape of the table is the specification and the conditionals are only one encoding of it.
+
+<svg viewBox="0 0 880 400" role="img" aria-labelledby="xfield-title xfield-desc" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="xfield-title">Which combinations of incident status and containment percentage the cross-field rule admits</title>
+  <desc id="xfield-desc">A matrix of five incident status values against four containment percentage bands. NEW admits only zero per cent, because nothing has been assessed yet. ACTIVE admits zero through ninety-nine but not one hundred. CONTAINED, CONTROLLED and OUT admit only one hundred per cent, because this site's contract defines all three as requiring a fully lined perimeter. Every other combination is a contradiction. The outlined cell is the opening scenario — status CONTAINED carrying zero per cent containment — which passes every single-field check because the status is a legal enum value and the percentage is a legal number; only a validator that runs after both fields are populated can see that together they are impossible.</desc>
+  <rect x="0" y="0" width="880" height="400" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="10.5" fill="var(--muted)">contract: CONTAINED · CONTROLLED · OUT all require a fully lined perimeter</text>
+    <text x="295" y="76" font-size="11" font-weight="700" text-anchor="middle" fill="var(--crimson-deep)">0%</text>
+    <text x="445" y="76" font-size="11" font-weight="700" text-anchor="middle" fill="var(--crimson-deep)">1–49%</text>
+    <text x="595" y="76" font-size="11" font-weight="700" text-anchor="middle" fill="var(--crimson-deep)">50–99%</text>
+    <text x="745" y="76" font-size="11" font-weight="700" text-anchor="middle" fill="var(--crimson-deep)">100%</text>
+    <rect x="220" y="90" width="150" height="50" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.2"/>
+    <rect x="370" y="90" width="150" height="50" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.2"/>
+    <rect x="520" y="90" width="150" height="50" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.2"/>
+    <rect x="670" y="90" width="150" height="50" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.2"/>
+    <rect x="220" y="140" width="150" height="50" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.2"/>
+    <rect x="370" y="140" width="150" height="50" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.2"/>
+    <rect x="520" y="140" width="150" height="50" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.2"/>
+    <rect x="670" y="140" width="150" height="50" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.2"/>
+    <rect x="220" y="190" width="150" height="50" fill="var(--cream)" stroke="var(--crimson)" stroke-width="2.4"/>
+    <rect x="370" y="190" width="150" height="50" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.2"/>
+    <rect x="520" y="190" width="150" height="50" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.2"/>
+    <rect x="670" y="190" width="150" height="50" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.2"/>
+    <rect x="220" y="240" width="150" height="50" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.2"/>
+    <rect x="370" y="240" width="150" height="50" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.2"/>
+    <rect x="520" y="240" width="150" height="50" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.2"/>
+    <rect x="670" y="240" width="150" height="50" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.2"/>
+    <rect x="220" y="290" width="150" height="50" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.2"/>
+    <rect x="370" y="290" width="150" height="50" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.2"/>
+    <rect x="520" y="290" width="150" height="50" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.2"/>
+    <rect x="670" y="290" width="150" height="50" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.2"/>
+    <path d="M287 115 l6 7 l11 -14" fill="none" stroke="var(--crimson-deep)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M438 108 l14 14 M452 108 l-14 14" fill="none" stroke="var(--ember)" stroke-width="2.6" stroke-linecap="round"/>
+    <path d="M588 108 l14 14 M602 108 l-14 14" fill="none" stroke="var(--ember)" stroke-width="2.6" stroke-linecap="round"/>
+    <path d="M738 108 l14 14 M752 108 l-14 14" fill="none" stroke="var(--ember)" stroke-width="2.6" stroke-linecap="round"/>
+    <path d="M287 165 l6 7 l11 -14" fill="none" stroke="var(--crimson-deep)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M437 165 l6 7 l11 -14" fill="none" stroke="var(--crimson-deep)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M587 165 l6 7 l11 -14" fill="none" stroke="var(--crimson-deep)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M738 158 l14 14 M752 158 l-14 14" fill="none" stroke="var(--ember)" stroke-width="2.6" stroke-linecap="round"/>
+    <path d="M288 208 l14 14 M302 208 l-14 14" fill="none" stroke="var(--ember)" stroke-width="2.6" stroke-linecap="round"/>
+    <path d="M438 208 l14 14 M452 208 l-14 14" fill="none" stroke="var(--ember)" stroke-width="2.6" stroke-linecap="round"/>
+    <path d="M588 208 l14 14 M602 208 l-14 14" fill="none" stroke="var(--ember)" stroke-width="2.6" stroke-linecap="round"/>
+    <path d="M737 215 l6 7 l11 -14" fill="none" stroke="var(--crimson-deep)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M288 258 l14 14 M302 258 l-14 14" fill="none" stroke="var(--ember)" stroke-width="2.6" stroke-linecap="round"/>
+    <path d="M438 258 l14 14 M452 258 l-14 14" fill="none" stroke="var(--ember)" stroke-width="2.6" stroke-linecap="round"/>
+    <path d="M588 258 l14 14 M602 258 l-14 14" fill="none" stroke="var(--ember)" stroke-width="2.6" stroke-linecap="round"/>
+    <path d="M737 265 l6 7 l11 -14" fill="none" stroke="var(--crimson-deep)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M288 308 l14 14 M302 308 l-14 14" fill="none" stroke="var(--ember)" stroke-width="2.6" stroke-linecap="round"/>
+    <path d="M438 308 l14 14 M452 308 l-14 14" fill="none" stroke="var(--ember)" stroke-width="2.6" stroke-linecap="round"/>
+    <path d="M588 308 l14 14 M602 308 l-14 14" fill="none" stroke="var(--ember)" stroke-width="2.6" stroke-linecap="round"/>
+    <path d="M737 315 l6 7 l11 -14" fill="none" stroke="var(--crimson-deep)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <g fill="currentColor">
+    <text x="8" y="120" font-size="11" font-weight="700">NEW</text>
+    <text x="8" y="170" font-size="11" font-weight="700">ACTIVE</text>
+    <text x="8" y="220" font-size="11" font-weight="700">CONTAINED</text>
+    <text x="8" y="270" font-size="11" font-weight="700">CONTROLLED</text>
+    <text x="8" y="320" font-size="11" font-weight="700">OUT</text>
+  </g>
+  <text x="440" y="374" font-size="11" text-anchor="middle" fill="var(--muted)">The outlined cell is the opening scenario — legal in every single-field check, impossible as a pair.</text>
+</svg>
+
+What the matrix makes obvious is that the contradictions are not evenly distributed — they cluster, and they cluster around the transitions. Twelve of the twenty combinations are impossible, and every one of them involves a status that has an implied containment and a figure that disagrees with it. That is a useful property when writing the validator: the rule is not twenty special cases, it is one statement per status about the containment range it implies, which is four lines of policy an operations chief can read and sign off on.
+
+It is also the reason this belongs in a model validator rather than a field validator. Both halves of every contradiction are individually valid — `CONTAINED` is a legal enum member and `0` is a legal percentage — so no amount of per-field strictness will catch them. Only a check that runs once all fields are populated can see the pair.
+
 ### Step 5 — Batch-validate with quarantine routing
 
 Validate per record, aggregate every failure into a structured report, and isolate bad records rather than dropping them. Quarantine preserves the audit trail required for post-incident review and compliance audits.
@@ -315,6 +380,134 @@ Expose the tunable policy as environment variables or a versioned rule registry 
 | Geometry repair | `IVE_AUTOFIX_TOPOLOGY` | `false` | If `true`, attempt `make_valid()` before failing |
 | Audit sink | `IVE_AUDIT_SINK` | `stdout` | Where the quarantine report is emitted for chain-of-custody |
 | Log level | `IVE_LOG_LEVEL` | `INFO` | Structured-logging verbosity |
+
+The quarantine mode is the one setting on that list with no safe default, because the two options fail in opposite directions and which failure you prefer depends on what the payload means.
+
+<svg viewBox="0 0 880 340" role="img" aria-labelledby="qmode-title qmode-desc" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="qmode-title">What batch and record quarantine modes do to one payload containing three invalid records</title>
+  <desc id="qmode-desc">A fifty-record payload is drawn as fifty squares, three of which are invalid. Under batch quarantine mode the whole payload is rejected: nothing is committed and all fifty records go to the review queue, so three bad records hold forty-seven good ones. Under record mode the clean subset commits: forty-seven records reach the active layer and only the three invalid ones return to the authoring agency. Batch mode preserves the payload as an atomic unit, which matters when the records are interdependent; record mode preserves availability, which matters when they are not.</desc>
+  <rect x="0" y="0" width="880" height="340" fill="var(--blush)"/>
+  <text x="200" y="52" font-size="11" font-weight="700" fill="var(--crimson-deep)">a 50-record payload carrying 3 invalid records</text>
+  <text x="8" y="86" font-size="11" font-weight="700" fill="currentColor">MODE = batch</text>
+  <text x="8" y="102" font-size="10" fill="var(--muted)">0 committed</text>
+  <text x="8" y="116" font-size="10" fill="var(--muted)">50 quarantined</text>
+    <rect x="200" y="92" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="219" y="92" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="238" y="92" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="257" y="92" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="276" y="92" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="295" y="92" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="314" y="92" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="333" y="92" width="15" height="15" rx="3" fill="var(--ember)" stroke="var(--crimson-deep)" stroke-width="1.1"/>
+    <rect x="352" y="92" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="371" y="92" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="390" y="92" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="409" y="92" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="428" y="92" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="447" y="92" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="466" y="92" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="485" y="92" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="504" y="92" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="523" y="92" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="542" y="92" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="561" y="92" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="580" y="92" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="599" y="92" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="618" y="92" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="637" y="92" width="15" height="15" rx="3" fill="var(--ember)" stroke="var(--crimson-deep)" stroke-width="1.1"/>
+    <rect x="656" y="92" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="200" y="116" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="219" y="116" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="238" y="116" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="257" y="116" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="276" y="116" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="295" y="116" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="314" y="116" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="333" y="116" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="352" y="116" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="371" y="116" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="390" y="116" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="409" y="116" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="428" y="116" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="447" y="116" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="466" y="116" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="485" y="116" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="504" y="116" width="15" height="15" rx="3" fill="var(--ember)" stroke="var(--crimson-deep)" stroke-width="1.1"/>
+    <rect x="523" y="116" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="542" y="116" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="561" y="116" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="580" y="116" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="599" y="116" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="618" y="116" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="637" y="116" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="656" y="116" width="15" height="15" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--line-strong)" stroke-width="1.1"/>
+  <text x="710" y="104" font-size="10.5" fill="currentColor">three bad records</text>
+  <text x="710" y="119" font-size="10.5" fill="currentColor">hold 47 good ones</text>
+  <text x="8" y="206" font-size="11" font-weight="700" fill="currentColor">MODE = record</text>
+  <text x="8" y="222" font-size="10" fill="var(--muted)">47 committed</text>
+  <text x="8" y="236" font-size="10" fill="var(--muted)">3 quarantined</text>
+    <rect x="200" y="212" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="219" y="212" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="238" y="212" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="257" y="212" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="276" y="212" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="295" y="212" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="314" y="212" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="333" y="212" width="15" height="15" rx="3" fill="var(--ember)" stroke="var(--crimson-deep)" stroke-width="1.1"/>
+    <rect x="352" y="212" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="371" y="212" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="390" y="212" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="409" y="212" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="428" y="212" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="447" y="212" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="466" y="212" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="485" y="212" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="504" y="212" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="523" y="212" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="542" y="212" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="561" y="212" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="580" y="212" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="599" y="212" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="618" y="212" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="637" y="212" width="15" height="15" rx="3" fill="var(--ember)" stroke="var(--crimson-deep)" stroke-width="1.1"/>
+    <rect x="656" y="212" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="200" y="236" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="219" y="236" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="238" y="236" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="257" y="236" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="276" y="236" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="295" y="236" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="314" y="236" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="333" y="236" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="352" y="236" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="371" y="236" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="390" y="236" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="409" y="236" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="428" y="236" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="447" y="236" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="466" y="236" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="485" y="236" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="504" y="236" width="15" height="15" rx="3" fill="var(--ember)" stroke="var(--crimson-deep)" stroke-width="1.1"/>
+    <rect x="523" y="236" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="542" y="236" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="561" y="236" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="580" y="236" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="599" y="236" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="618" y="236" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="637" y="236" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="656" y="236" width="15" height="15" rx="3" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+  <text x="710" y="224" font-size="10.5" fill="currentColor">clean subset commits;</text>
+  <text x="710" y="239" font-size="10.5" fill="currentColor">3 return to the author</text>
+  <circle cx="206" cy="288" r="7" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+  <text x="220" y="292" font-size="10.5" fill="currentColor">committed to the active layer</text>
+  <circle cx="446" cy="288" r="7" fill="var(--ember)" opacity="0.55"/>
+  <text x="460" y="292" font-size="10.5" fill="currentColor">quarantined for review</text>
+  <text x="440" y="322" font-size="11" text-anchor="middle" fill="var(--muted)">Neither mode is safer in general — they trade atomicity against availability.</text>
+</svg>
+
+Choose `batch` when the records in a payload are interdependent — a perimeter and the division breaks that reference it, or a shelter roster whose totals must reconcile. Committing forty-seven of fifty there produces a Common Operating Picture that is internally inconsistent in a way no single record reveals, which is worse than having nothing, because it looks complete. Choose `record` when the payload is merely a batch of independent observations that happened to travel together, which is the common case for sensor and field-collection traffic. There, holding forty-seven valid observations because three were malformed is a self-inflicted outage.
+
+The mode is per-source, not global, and it should be set by whoever knows what the payload represents rather than by whoever operates the pipeline. A useful default is to start every new integration in `batch` and relax it to `record` once someone has confirmed the records are genuinely independent — the direction of that migration matters, because relaxing after evidence is a decision and tightening after an incident is a post-mortem action item.
 
 ## Verification & Smoke Test
 

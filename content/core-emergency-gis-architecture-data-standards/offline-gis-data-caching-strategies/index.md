@@ -173,6 +173,55 @@ class OfflineCacheBuilder:
 
 The manifest is hashed in 8 KB chunks so that a large raster-derived export does not exhaust memory on the build host, and the chunked read is the same routine a field client uses to verify the artifact before mounting it.
 
+The word "deterministic" in that step is load-bearing and easy to read past. It does not mean "correct"; it means byte-identical, and the reason it matters is entirely downstream.
+
+<svg viewBox="0 0 880 380" role="img" aria-labelledby="det-t det-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="det-t">Why two builds of the same incident footprint must produce the same bytes</title>
+  <desc id="det-d">The same clip of the same source data is built twice, four hours apart, on two different nodes. On the left the build is non-deterministic: feature order follows the database's physical row order, the GeoPackage records its own creation timestamp, and the layer carries no canonical vertex winding, so the two builds differ in bytes even though they describe identical geometry. Their hashes differ, so every field device concludes the cache changed and re-downloads 1.8 gigabytes it already has. On the right the build is deterministic: features are sorted by a stable key, the timestamp is pinned to the snapshot time rather than the build time, and winding is canonicalised, so an unchanged footprint produces an identical hash and the delta is empty. Determinism here is not a purity concern — it is what makes the delta protocol work at all.</desc>
+  <rect x="0" y="0" width="880" height="380" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">the same footprint, built twice — determinism is what makes the delta empty</text>
+  <text x="60" y="80" font-size="11" font-weight="700" fill="currentColor">non-deterministic build</text>
+  <text x="490" y="80" font-size="11" font-weight="700" fill="currentColor">deterministic build</text>
+  <g>
+    <rect x="60" y="96" width="150" height="54" rx="8" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.3"/>
+    <rect x="240" y="96" width="150" height="54" rx="8" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.3"/>
+    <rect x="490" y="96" width="150" height="54" rx="8" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.3"/>
+    <rect x="670" y="96" width="150" height="54" rx="8" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.3"/>
+  </g>
+  <g font-size="10.5" text-anchor="middle" fill="currentColor">
+    <text x="135" y="118">build A · 12:00</text><text x="315" y="118">build B · 16:00</text>
+    <text x="565" y="118">build A · 12:00</text><text x="745" y="118">build B · 16:00</text>
+  </g>
+  <g font-size="9.5" text-anchor="middle" fill="var(--muted)">
+    <text x="135" y="136">row order · build time</text><text x="315" y="136">row order · build time</text>
+    <text x="565" y="136">sorted · snapshot time</text><text x="745" y="136">sorted · snapshot time</text>
+  </g>
+  <g font-size="11" font-weight="700" text-anchor="middle">
+    <text x="135" y="186" fill="var(--ember-text)">sha256 4f1c…</text>
+    <text x="315" y="186" fill="var(--ember-text)">sha256 9a07…</text>
+    <text x="565" y="186" fill="var(--crimson-deep)">sha256 c2e8…</text>
+    <text x="745" y="186" fill="var(--crimson-deep)">sha256 c2e8…</text>
+  </g>
+  <g fill="none" stroke="var(--line-strong)" stroke-width="1.3">
+    <path d="M135 150 V170"/><path d="M315 150 V170"/><path d="M565 150 V170"/><path d="M745 150 V170"/>
+  </g>
+  <rect x="60" y="212" width="330" height="72" rx="9" fill="var(--cream)" stroke="var(--ember)" stroke-width="1.8"/>
+  <text x="76" y="238" font-size="11" font-weight="700" fill="var(--ember-text)">hashes differ · geometry identical</text>
+  <text x="76" y="258" font-size="10" fill="currentColor">every device re-downloads 1.8 GB it</text>
+  <text x="76" y="274" font-size="10" fill="currentColor">already has, over the worst link it has</text>
+  <rect x="490" y="212" width="330" height="72" rx="9" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.8"/>
+  <text x="506" y="238" font-size="11" font-weight="700" fill="var(--crimson-deep)">hashes match · delta is empty</text>
+  <text x="506" y="258" font-size="10" fill="currentColor">the sync completes in one round trip</text>
+  <text x="506" y="274" font-size="10" fill="currentColor">and transfers nothing at all</text>
+  <text x="440" y="330" font-size="11" text-anchor="middle" fill="var(--muted)">A cache that cannot prove it is unchanged is a cache that must be re-sent.</text>
+</svg>
+
+Three ordinary defaults break it. Feature order that follows the database's physical row order changes whenever a row is updated and moved. A GeoPackage records its own creation timestamp in the file header, so two builds four hours apart differ in a field that has nothing to do with the data. And polygon winding that is not canonicalised means a geometry round-tripped through a different library version serialises differently while describing the same shape.
+
+None of those produce a *wrong* cache. Every one of them produces a cache whose hash changes when nothing changed, which is worse than it sounds: the delta protocol described later in this page decides what to ship by comparing hashes, so a spurious hash change turns an empty delta into a full re-send. On a fleet of forty devices on a shared satellite link, one non-deterministic build is the difference between a sync that transfers nothing and one that saturates the uplink for the rest of the operational period.
+
+Fix all three at the writer, not at the comparison. Sort features by a stable key before writing, pin the container's timestamp to the snapshot time rather than the build time, and normalise ring winding on the way in. Then assert the property in CI the way you would assert any other: build the same fixture twice and require the hashes to match. It is a two-line test that catches an entire class of field failure nobody would otherwise attribute to the build step.
+
 ### Step 2 — Bake the canonical projection into the cache
 
 Disaster zones routinely cross county, state, or tribal boundaries, each with distinct local datums. Deferring coordinate transformation to client-side rendering adds latency on low-power tablets and risks misalignment during multi-agency overlays. Resolve the projection once, at build time, and bake the target CRS directly into the artifact header so the field client never reprojects. The datum-shift logic itself — NAD27, NAD83(2011), ITRF2014 — belongs to the [Coordinate Reference Systems for Disaster Zones](https://www.incidentgis.com/core-emergency-gis-architecture-data-standards/coordinate-reference-systems-for-disaster-zones/) reference; this stage consumes its EPSG decision and refuses to guess.
@@ -330,6 +379,58 @@ Tune these per deployment; an offline field node and a steady-state build host w
 | Retained generations | `CACHE_KEEP_GENERATIONS` | `6` | Immutable archive depth for after-action review. |
 | Manifest algorithm | `CACHE_HASH_ALGO` | `sha256` | Field clients must use the same algorithm; do not weaken to MD5. |
 | Delta mode | `CACHE_DELTA_ONLY` | `true` | Ship only changed layers over constrained links; full artifact on first sync. |
+
+Two of those parameters multiply into the property that makes the whole scheme defensible, and it is easy to set them without noticing what they buy.
+
+<svg viewBox="0 0 880 340" role="img" aria-labelledby="rot-t rot-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="rot-t">Seven retained cache generations across 24 hours, and what each one is for</title>
+  <desc id="rot-d">With a four-hour rotation interval and six retained generations, a device holds seven immutable cache artifacts spanning a full day: the current generation it serves from, the prior generation it can roll back to instantly if the current one is found corrupt, and five archived generations kept for after-action review. Because each generation is immutable and content-hashed, a reviewer can reconstruct exactly what a crew saw at any hour of the incident, and a device that finds a hash mismatch on the current artifact can fall back one generation without any network access at all. Shortening the interval buys finer reconstruction and shortens the archive window; lengthening it does the reverse.</desc>
+  <rect x="0" y="0" width="880" height="340" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">CACHE_ROTATE_SECONDS = 14400 · CACHE_KEEP_GENERATIONS = 6 → 24 hours of reconstructable history</text>
+  <text x="8" y="76" font-size="10" fill="var(--muted)">oldest retained</text>
+  <text x="700" y="76" font-size="10" fill="var(--muted)">serving now</text>
+  <rect x="60" y="110" width="96" height="70" rx="8" fill="var(--petal-soft)" stroke="var(--crimson-deep)" stroke-width="1.4"/>
+  <text x="108" y="138" font-size="12" font-weight="700" text-anchor="middle" fill="var(--crimson-deep)">G-6</text>
+  <text x="108" y="158" font-size="10" text-anchor="middle" fill="var(--crimson-deep)">16:00</text>
+  <text x="108" y="196" font-size="9.5" text-anchor="middle" fill="var(--muted)">archived</text>
+  <rect x="172" y="110" width="96" height="70" rx="8" fill="var(--petal-soft)" stroke="var(--crimson-deep)" stroke-width="1.4"/>
+  <text x="220" y="138" font-size="12" font-weight="700" text-anchor="middle" fill="var(--crimson-deep)">G-5</text>
+  <text x="220" y="158" font-size="10" text-anchor="middle" fill="var(--crimson-deep)">20:00</text>
+  <text x="220" y="196" font-size="9.5" text-anchor="middle" fill="var(--muted)">archived</text>
+  <rect x="284" y="110" width="96" height="70" rx="8" fill="var(--petal-soft)" stroke="var(--crimson-deep)" stroke-width="1.4"/>
+  <text x="332" y="138" font-size="12" font-weight="700" text-anchor="middle" fill="var(--crimson-deep)">G-4</text>
+  <text x="332" y="158" font-size="10" text-anchor="middle" fill="var(--crimson-deep)">00:00</text>
+  <text x="332" y="196" font-size="9.5" text-anchor="middle" fill="var(--muted)">archived</text>
+  <rect x="396" y="110" width="96" height="70" rx="8" fill="var(--petal-soft)" stroke="var(--crimson-deep)" stroke-width="1.4"/>
+  <text x="444" y="138" font-size="12" font-weight="700" text-anchor="middle" fill="var(--crimson-deep)">G-3</text>
+  <text x="444" y="158" font-size="10" text-anchor="middle" fill="var(--crimson-deep)">04:00</text>
+  <text x="444" y="196" font-size="9.5" text-anchor="middle" fill="var(--muted)">archived</text>
+  <rect x="508" y="110" width="96" height="70" rx="8" fill="var(--petal-soft)" stroke="var(--crimson-deep)" stroke-width="1.4"/>
+  <text x="556" y="138" font-size="12" font-weight="700" text-anchor="middle" fill="var(--crimson-deep)">G-2</text>
+  <text x="556" y="158" font-size="10" text-anchor="middle" fill="var(--crimson-deep)">08:00</text>
+  <text x="556" y="196" font-size="9.5" text-anchor="middle" fill="var(--muted)">archived</text>
+  <rect x="620" y="110" width="96" height="70" rx="8" fill="var(--petal)" stroke="var(--crimson-deep)" stroke-width="1.4"/>
+  <text x="668" y="138" font-size="12" font-weight="700" text-anchor="middle" fill="var(--crimson-deep)">G-1</text>
+  <text x="668" y="158" font-size="10" text-anchor="middle" fill="var(--crimson-deep)">12:00</text>
+  <text x="668" y="196" font-size="9.5" text-anchor="middle" fill="var(--muted)">prior</text>
+  <rect x="732" y="110" width="96" height="70" rx="8" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="1.4"/>
+  <text x="780" y="138" font-size="12" font-weight="700" text-anchor="middle" fill="var(--cream)">G-0</text>
+  <text x="780" y="158" font-size="10" text-anchor="middle" fill="var(--cream)">16:00</text>
+  <text x="780" y="196" font-size="9.5" text-anchor="middle" fill="var(--muted)">current</text>
+  <path d="M60 226 H828" fill="none" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <path d="M828 226 l-10 -5 M828 226 l-10 5" fill="none" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <text x="60" y="248" font-size="10" fill="var(--muted)">24 hours of incident time</text>
+  <path d="M780 200 V216 H716" fill="none" stroke="var(--crimson)" stroke-width="1.6"/>
+  <path d="M716 216 l9 -5 M716 216 l9 5" fill="none" stroke="var(--crimson)" stroke-width="1.6"/>
+  <text x="500" y="284" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">roll back one generation with no network at all</text>
+  <text x="8" y="316" font-size="11" fill="currentColor">Immutable and content-hashed, so a reviewer can reconstruct exactly what a crew saw at any hour.</text>
+</svg>
+
+The rotation interval alone is a freshness knob. The retained-generation count alone is a disk-space knob. Their product is the *reconstruction window* — the span of incident time a reviewer can replay — and at the defaults that window is a full day. That is not incidental: a NIMS after-action review asks what the crew was looking at when a decision was made, and the only honest answer comes from an artifact that still exists, unchanged, with a hash that proves it is the one that was served.
+
+Immutability is what makes rollback free. A device that computes a hash mismatch on `G-0` does not need to reach the network to recover; `G-1` is sitting on the same disk, was valid four hours ago, and is a complete artifact rather than a delta chain. That is a meaningfully better failure mode than any repair-in-place scheme, and it costs only the disk to hold six extra copies — which, for the vector layers that dominate the cache, is far less than the raster basemap that never changes and is shared across all of them.
+
+Tune the pair together rather than separately. A fast-moving perimeter argues for a shorter interval, but halving the interval at a fixed generation count halves the reconstruction window too, so it usually needs the count raised in the same change. Halving the interval and doubling the count keeps the window and doubles the disk — which is the trade actually being made, and worth stating explicitly in the deployment notes rather than discovering during a review that the incident's first eight hours were rotated away.
 
 ## Verification & Smoke Test
 

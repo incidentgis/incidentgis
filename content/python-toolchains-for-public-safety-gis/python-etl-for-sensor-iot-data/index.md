@@ -415,6 +415,40 @@ def load_and_audit(
 
 Sensor-derived coordinates also arrive as unstructured location text — a station label, a cross-street, a milepost. Normalising that into authoritative addressing is a workflow of its own; see [Automating address standardization for 911 logs](https://www.incidentgis.com/python-toolchains-for-public-safety-gis/python-etl-for-sensor-iot-data/automating-address-standardization-for-911-logs/) for the deterministic parsing path into Next Generation 911 (NG911) routing tables and parcel datasets.
 
+Sensor ETL differs from ordinary ETL in one respect that shapes every design decision downstream: the data arrives late, out of order, and indefinitely.
+
+<svg viewBox="0 0 880 380" role="img" aria-labelledby="lt-t lt-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="lt-t">When readings from one hour of incident time actually arrive</title>
+  <desc id="lt-d">Readings observed between 14:00 and 15:00 plotted by when the pipeline received them. Sensors on mains power with a live backhaul deliver within seconds, and about 71 per cent of the hour's readings are present by 15:05. Battery sensors that batch their uploads every fifteen minutes bring the total to 89 per cent by 15:20. Sensors behind a repeater that lost power deliver nothing until it is restored, arriving in a burst at 18:40 and taking the total to 97 per cent. The remaining 3 per cent arrives over the following two days as devices are physically reached. A window that closes at 15:05 therefore publishes an hour that is missing nearly a third of its observations, and no amount of waiting makes the tail finite.</desc>
+  <rect x="0" y="0" width="880" height="380" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">readings observed 14:00–15:00, by the time they actually arrived</text>
+  <text x="8" y="90" font-size="10" fill="var(--muted)">share present</text>
+  <g stroke="var(--line-strong)" stroke-width="0.9" opacity="0.5">
+    <path d="M180 240 H820"/><path d="M180 180 H820"/><path d="M180 120 H820"/>
+  </g>
+  <g font-size="10" fill="var(--muted)">
+    <text x="132" y="304">0%</text><text x="124" y="244">25%</text><text x="124" y="184">50%</text><text x="124" y="124">75%</text><text x="120" y="64">100%</text>
+  </g>
+  <path d="M180 300 H820" fill="none" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <path d="M180 60 V300" fill="none" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <path d="M180 300 L250 130 L330 129 L420 126 L470 86 L560 84 L640 82 L700 68 L820 62" fill="none" stroke="var(--crimson)" stroke-width="2.8"/>
+  <path d="M250 60 V300" fill="none" stroke="var(--ember)" stroke-width="1.6" stroke-dasharray="5 4"/>
+  <text x="258" y="76" font-size="10.5" font-weight="700" fill="var(--ember-text)">a 5-minute window closes here — 71%</text>
+  <circle cx="470" cy="86" r="7" fill="var(--crimson)"/>
+  <text x="410" y="112" font-size="10" font-weight="700" fill="var(--crimson-deep)">repeater restored · 97%</text>
+  <g font-size="10" text-anchor="middle" fill="var(--muted)">
+    <text x="180" y="320">15:00</text><text x="330" y="320">15:30</text><text x="470" y="320">18:40</text><text x="640" y="320">+1 day</text><text x="820" y="320">+2 days</text>
+  </g>
+  <text x="8" y="352" font-size="10.5" fill="currentColor">The tail is not long — it is unbounded. Some devices are reached physically, days later.</text>
+  <text x="8" y="370" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">So the question is not how long to wait; it is how to publish now and correct later.</text>
+</svg>
+
+The shape of that curve rules out the obvious design. Waiting for completeness never terminates, because the tail is bounded by physical access to devices rather than by any network property. Publishing at a fixed window is defensible but has to be understood for what it is: an hour published at 15:05 is an hour containing 71 per cent of its observations, and the missing 29 per cent are not randomly distributed — they are concentrated in exactly the areas where infrastructure failed, which during an incident is where the hazard is.
+
+So the pipeline has to be built for restatement from the beginning. Readings are keyed on their observation time rather than their arrival time; aggregates are recomputed when late data lands; and every published figure carries the arrival watermark it was computed against, so a consumer can tell that the 15:00 hour it read at 15:05 is not the 15:00 hour it would read now.
+
+Retrofitting this is expensive, which is why it belongs in the prerequisites rather than in a later hardening pass. A pipeline that assumed arrival order — appending to partitions by arrival, aggregating once, publishing immutable outputs — cannot absorb the 18:40 burst without recomputing history it structurally cannot address.
+
 ## Configuration Reference
 
 Tune these per deployment; the defaults are sized for a single mobile-command node under moderate surge.
@@ -428,6 +462,39 @@ Tune these per deployment; the defaults are sized for a single mobile-command no
 | Hazard radius (m) | `ETL_HAZARD_RADIUS_M` | `500` | Proximity buffer applied around each reading |
 | Dead-letter path | `ETL_DLQ_PATH` | `./dlq.sqlite` | Quarantine store for replay |
 | Batch size | `ETL_BATCH_SIZE` | `500` | Records per transform pass; chunk larger streams to bound memory |
+
+One consequence of building for restatement is that the pipeline needs an explicit answer to "how complete is this figure?", and that answer is a watermark rather than a boolean.
+
+<svg viewBox="0 0 880 360" role="img" aria-labelledby="wm-t wm-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="wm-t">The same aggregate published three times as late data arrives</title>
+  <desc id="wm-d">A peak-wind figure for the 14:00 hour is published three times. At 15:05 it reads 34 knots against a watermark stating 71 per cent of expected sensors reported. At 15:20 late batch uploads raise it to 41 knots at 89 per cent. At 18:40, when a failed repeater is restored, a burst of readings raises it to 52 knots at 97 per cent — a figure half again as large as the first publication. Each version is correct for the data available when it was computed, and each carries the watermark that says so, which is what lets a consumer tell a revision from a contradiction.</desc>
+  <rect x="0" y="0" width="880" height="360" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">peak wind for the 14:00 hour, published three times</text>
+  <rect x="40" y="86" width="250" height="130" rx="9" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.5"/>
+  <rect x="315" y="86" width="250" height="130" rx="9" fill="var(--petal)" stroke="var(--crimson)" stroke-width="1.6"/>
+  <rect x="590" y="86" width="250" height="130" rx="9" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="1.8"/>
+  <text x="60" y="114" font-size="10.5" font-weight="700" fill="currentColor">published 15:05</text>
+  <text x="335" y="114" font-size="10.5" font-weight="700" fill="currentColor">republished 15:20</text>
+  <text x="610" y="114" font-size="10.5" font-weight="700" fill="var(--cream)">republished 18:40</text>
+  <text x="60" y="158" font-size="22" font-weight="700" fill="var(--crimson-deep)">34 kt</text>
+  <text x="335" y="158" font-size="22" font-weight="700" fill="var(--crimson-deep)">41 kt</text>
+  <text x="610" y="158" font-size="22" font-weight="700" fill="var(--cream)">52 kt</text>
+  <text x="60" y="186" font-size="10" fill="var(--muted)">watermark: 71% reported</text>
+  <text x="335" y="186" font-size="10" fill="currentColor">watermark: 89% reported</text>
+  <text x="610" y="186" font-size="10" fill="var(--cream)">watermark: 97% reported</text>
+  <text x="60" y="204" font-size="9.5" fill="var(--muted)">mains-powered sensors only</text>
+  <text x="335" y="204" font-size="9.5" fill="currentColor">battery batches landed</text>
+  <text x="610" y="204" font-size="9.5" fill="var(--cream)">repeater restored</text>
+  <rect x="40" y="250" width="800" height="60" rx="9" fill="var(--cream)" stroke="var(--ember)" stroke-width="1.8"/>
+  <text x="60" y="274" font-size="10.5" font-weight="700" fill="var(--ember-text)">without the watermark, these three are a system that contradicts itself</text>
+  <text x="60" y="294" font-size="10" fill="currentColor">with it, they are one figure improving as its inputs arrive — and a duty officer can see that 34 kt was never wrong, just early</text>
+</svg>
+
+A 53 per cent increase in a peak-wind figure between two readings of the same hour is, without context, evidence that the system cannot be trusted. With the watermark attached it is evidence of exactly the opposite: the figure moved because the sensors in the area whose repeater had failed finally reported, and the pipeline said so.
+
+That distinction has an operational edge to it. A duty officer who saw 34 knots at 15:05 and acted on it needs to know at 18:40 that the basis for the decision has changed — not that a number was wrong, but that the hour they planned against was substantially windier than the data then available showed. A revision without a watermark cannot communicate that; it just looks like the system changed its mind.
+
+Publish the watermark as a first-class field on every aggregate, and make the smoke test assert that it is present and monotonic per hour. An aggregate whose watermark goes down has been recomputed against a subset of its own inputs, which means a partition was dropped somewhere — a defect that is otherwise very hard to see.
 
 ## Verification and Smoke Test
 

@@ -106,6 +106,46 @@ In a routine office context an undeclared CRS is an inconvenience. In an active 
   <text x="734" y="170" font-size="10.5" fill="var(--crimson, currentColor)" text-anchor="middle">bounds fail</text>
 </svg>
 
+Before the ladder, it is worth being precise about what a parser can and cannot learn from the numbers themselves, because the temptation to skip straight to sniffing is strong and the limit is sharper than it looks.
+
+<svg viewBox="0 0 880 360" role="img" aria-labelledby="cs-t cs-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="cs-t">Telling coordinate systems apart by the shape of the numbers alone</title>
+  <desc id="cs-d">Three raw coordinate pairs from the same physical location near Albuquerque, written in three coordinate systems. In WGS 84 geographic the pair is minus 106.61 and 35.08, two small signed decimals with the longitude first. In UTM zone 13 north the pair is 353,470 and 3,883,100, a six-figure easting and a seven-figure northing. In New Mexico State Plane Central, in survey feet, it is 1,527,600 and 1,479,900, two seven-figure values of similar magnitude. The magnitude and sign pattern identify the family unambiguously, but they cannot identify the zone: a UTM pair from zone 12 or zone 14 has exactly the same shape and lands hundreds of kilometres away. This is why the bounds heuristic can rule systems out but never confirm one.</desc>
+  <rect x="0" y="0" width="880" height="360" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">one location near Albuquerque, written three ways</text>
+  <g>
+    <rect x="40" y="80" width="256" height="100" rx="9" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.6"/>
+    <rect x="312" y="80" width="256" height="100" rx="9" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.6"/>
+    <rect x="584" y="80" width="256" height="100" rx="9" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.6"/>
+  </g>
+  <g font-size="10.5" font-weight="700" fill="var(--crimson-deep)">
+    <text x="56" y="104">WGS 84 geographic</text>
+    <text x="328" y="104">UTM zone 13N</text>
+    <text x="600" y="104">NM State Plane Central</text>
+  </g>
+  <g font-size="13" font-weight="700" fill="currentColor">
+    <text x="56" y="136">-106.61, 35.08</text>
+    <text x="328" y="136">353470, 3883100</text>
+    <text x="600" y="136">1527600, 1479900</text>
+  </g>
+  <g font-size="9.5" fill="var(--muted)">
+    <text x="56" y="160">two small signed decimals</text>
+    <text x="328" y="160">6-figure E, 7-figure N</text>
+    <text x="600" y="160">two 7-figure values, survey feet</text>
+  </g>
+  <rect x="40" y="214" width="800" height="96" rx="9" fill="var(--cream)" stroke="var(--ember)" stroke-width="1.8"/>
+  <text x="60" y="240" font-size="11" font-weight="700" fill="var(--ember-text)">what the shape cannot tell you</text>
+  <text x="60" y="264" font-size="10.5" fill="currentColor">A UTM pair from zone 12 or zone 14 has exactly this shape too, and lands hundreds of kilometres away.</text>
+  <text x="60" y="284" font-size="10.5" fill="currentColor">Magnitude identifies the family; only the incident extent, a manifest, or a declaration identifies the zone.</text>
+  <text x="8" y="340" font-size="10.5" fill="currentColor">Which is why tier 3 marks its result inferred: it eliminated the alternatives, it did not confirm the answer.</text>
+</svg>
+
+The families are unmistakable. Two small signed decimals with a value beyond ±90 in the first position is geographic, longitude-first. A six-figure value paired with a seven-figure one is a UTM easting and northing. Two seven-figure values of similar magnitude is a State Plane pair in survey feet. Any of those can be recognised in a line of code, and a lot of pipelines stop there feeling pleased.
+
+The zone is the part that cannot be recovered. Every UTM zone uses the same 500,000-metre false easting, so the coordinates of a point in zone 12 look identical in shape to one in zone 13, and reading a zone-12 pair as zone 13 places it roughly 500 kilometres east — inside New Mexico rather than Arizona, plausibly on land, with no arithmetic anomaly to notice. State Plane is worse, because a single state carries several zones with overlapping value ranges.
+
+That is the whole justification for the ordering below. Sniffing is not a resolution tier at all; it is a validation tier that happens to be useful for elimination. It belongs after the declaration and the manifest, and its output belongs in a different field — `crs_source: inferred` rather than `crs_source: declared` — so that everything downstream can treat the two differently and a reviewer can find every inferred record in one query.
+
 ## Tiered Resolution Strategy
 
 Treat a missing CRS as a recoverable exception, never a fatal error and never a silent assumption. Resolve it through an ordered chain that runs from the most definitive evidence to a flagged safe default, stopping at the first tier that passes bounds validation:
@@ -114,6 +154,40 @@ Treat a missing CRS as a recoverable exception, never a fatal error and never a 
 2. **Device manifest resolution.** Cross-reference the hardware ID, app bundle, or field-crew profile against a cached registry of each device's known default projection. A unit that always logs UTM Zone 16N is a reliable signal when its own payload is silent.
 3. **Regional / operational heuristic.** Validate the raw coordinates against the active incident extent or pre-staged Universal Transverse Mercator (UTM) zones, and infer the projection from where the point actually falls. This recovers points that are clearly geographic degrees inside the operational area.
 4. **Safe default with audit flag.** Assign WGS 84 / EPSG:4326 (or the jurisdictional standard), emit a high-priority log record with the record ID and provenance tag, and route to a manual-review quarantine when positional tolerance thresholds are exceeded. The data stays usable, but no operator mistakes a guess for a measurement.
+
+Running a representative batch through the ladder shows why the tiers are ordered the way they are, and where the operational attention belongs.
+
+<svg viewBox="0 0 880 380" role="img" aria-labelledby="mc-t mc-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="mc-t">How a batch of field-collected GPS logs resolves across the four tiers</title>
+  <desc id="mc-d">A hundred field-collected logs entering the resolver. Sixty-two declare their own coordinate reference in the payload and are resolved definitively. Of the remainder, twenty-four are resolved by looking the device hardware identifier up in a cached manifest, which is equally trustworthy. Eleven more are inferred by testing the raw coordinates against the active incident extent, which is weaker evidence because it can only rule systems out, not confirm one. The last three reach the safe default: the jurisdictional standard is assumed, a high-priority audit record is written and the features are held out of the operating picture pending review. Each band is narrower than the one above it and each carries weaker evidence, so the useful metric is not the resolution rate but how much of the batch reaches the bottom band.</desc>
+  <rect x="0" y="0" width="880" height="380" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">100 logs entering the resolver — each tier takes what the one above it could not</text>
+  <text x="8" y="78" font-size="10" fill="var(--muted)">strongest evidence</text>
+  <rect x="200" y="100" width="560.0" height="30" rx="5" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.1"/>
+  <rect x="200" y="100" width="347.2" height="30" rx="5" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="1.2"/>
+  <text x="8" y="120" font-size="10.5" fill="currentColor">payload declares its CRS</text>
+  <text x="770.0" y="120" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">62% · declared</text>
+  <rect x="200" y="156" width="212.8" height="30" rx="5" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.1"/>
+  <rect x="200" y="156" width="134.4" height="30" rx="5" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="1.2"/>
+  <text x="8" y="176" font-size="10.5" fill="currentColor">device manifest lookup</text>
+  <text x="422.8" y="176" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">24% · resolved</text>
+  <rect x="200" y="212" width="78.4" height="30" rx="5" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.1"/>
+  <rect x="200" y="212" width="61.6" height="30" rx="5" fill="var(--petal)" stroke="var(--crimson-deep)" stroke-width="1.2"/>
+  <text x="8" y="232" font-size="10.5" fill="currentColor">bounds heuristic vs incident extent</text>
+  <text x="288.4" y="232" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">11% · inferred</text>
+  <rect x="200" y="268" width="16.8" height="30" rx="5" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.1"/>
+  <rect x="200" y="268" width="16.8" height="30" rx="5" fill="var(--ember)" opacity="0.6" stroke="var(--crimson-deep)" stroke-width="1.2"/>
+  <text x="8" y="288" font-size="10.5" fill="currentColor">safe default + high-priority flag</text>
+  <text x="226.8" y="288" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">3% · assumed</text>
+  <text x="8" y="352" font-size="10" fill="var(--muted)">weakest — assumption, not evidence</text>
+  <text x="440" y="352" font-size="10.5" font-weight="700" text-anchor="middle" fill="var(--ember-text)">3 of 100 held out of the picture pending review</text>
+</svg>
+
+The top two tiers are interchangeable in quality even though only one of them reads the payload. A device manifest lookup is not a guess: the hardware identifier is a fact carried by the record, and the manifest is a curated mapping somebody maintains deliberately. Resolving 24 per cent of a batch this way is exactly as trustworthy as the 62 per cent that declared themselves, which is worth saying because the instinct is to treat "we had to look it up" as second-class.
+
+The third tier is genuinely weaker, and its weakness is specific: a bounds test can only *rule out* coordinate systems, never confirm one. If the raw coordinates fall inside the incident extent when read as WGS 84 and nowhere sensible otherwise, that is strong circumstantial evidence and nothing more — a UTM easting for a different zone can occasionally land inside a large extent too. It resolves the record and it should mark it as inferred rather than declared, so a reviewer can tell the two apart later.
+
+The metric that matters is the bottom band, not the total. A pipeline resolving 97 per cent looks excellent, and the three unresolved records are the entire point of the exercise: they are held out of the operating picture, they carry a high-priority audit record naming the device, and they should trigger a manifest update rather than a resolver change. A bottom band that stays at three records is a healthy system; one that grows week over week is a fleet acquiring devices nobody has registered.
 
 ## Production Python Implementation
 

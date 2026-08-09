@@ -99,6 +99,40 @@ Work the join from the definitive, fully-correct path down to a safe default tha
 3. **Repair topology before it raises.** Run `make_valid()` (or `buffer(0)`) on the polygon layer at load time so self-intersections and slivers do not throw `GEOSException` mid-surge.
 4. **Safe default with an audit flag.** If the exact join still raises (corrupt geometry, timeout, partitioned PostGIS), fall back to a nearest-centroid assignment with a bounded `max_distance`, stamp every degraded row with `fallback_mode=true` and an `audit_ts`, and route it to a reconciliation queue. A flagged approximate assignment is recoverable; a frozen dashboard is not.
 
+The cost model here is worth drawing, because the difference between the naive and indexed join is not a constant factor — it is a different curve.
+
+<svg viewBox="0 0 880 380" role="img" aria-labelledby="sj-t sj-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="sj-t">Join time against incident count for a nested-loop join and an R-tree-backed join</title>
+  <desc id="sj-d">Time to join incidents against a 12,000-polygon jurisdiction layer, plotted against the number of incidents on a logarithmic time axis. A nested-loop join tests every incident against every polygon, so its cost is the product: 1,000 incidents take about 1.4 seconds, 10,000 take about 14, and 100,000 take about 140. An R-tree-backed join tests each incident against the handful of candidate polygons its bounding box overlaps, so the cost is close to linear with a small constant: 1,000 take 0.04 seconds, 10,000 take 0.31, and 100,000 take 3.2. The two are within an order of magnitude at small volumes, which is why the naive version survives development, and two orders apart at the volumes a surge produces.</desc>
+  <rect x="0" y="0" width="880" height="380" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">joining against a 12,000-polygon jurisdiction layer</text>
+  <text x="8" y="70" font-size="10" fill="var(--muted)">join time</text>
+  <g stroke="var(--line-strong)" stroke-width="0.9" opacity="0.5">
+    <path d="M180 240 H820"/><path d="M180 180 H820"/><path d="M180 120 H820"/><path d="M180 60 H820"/>
+  </g>
+  <g font-size="10" fill="var(--muted)">
+    <text x="118" y="304">0.01 s</text><text x="128" y="244">0.1 s</text><text x="140" y="184">1 s</text>
+    <text x="132" y="124">10 s</text><text x="126" y="64">100 s</text>
+  </g>
+  <path d="M180 300 H820" fill="none" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <path d="M180 60 V300" fill="none" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <path d="M180 213 L393 153 L607 93 L820 33" fill="none" stroke="var(--ember)" stroke-width="2.8"/>
+  <path d="M180 288 L393 240 L607 191 L820 170" fill="none" stroke="var(--crimson)" stroke-width="2.8"/>
+  <text x="560" y="80" font-size="11" font-weight="700" fill="var(--ember-text)">nested loop — O(n × m)</text>
+  <text x="560" y="200" font-size="11" font-weight="700" fill="var(--crimson)">R-tree — near linear</text>
+  <path d="M393 60 V300" fill="none" stroke="var(--crimson-deep)" stroke-width="1.4" stroke-dasharray="5 4"/>
+  <text x="240" y="76" font-size="10" font-weight="700" fill="var(--crimson-deep)">a normal day ends here</text>
+  <g font-size="10" text-anchor="middle" fill="var(--muted)">
+    <text x="180" y="320">100</text><text x="393" y="320">1 000</text><text x="607" y="320">10 000</text><text x="820" y="320">100 000</text>
+    <text x="500" y="344" font-size="11">incidents joined</text>
+  </g>
+  <text x="8" y="372" font-size="10.5" fill="currentColor">Within an order of magnitude at development volumes; two orders apart at surge volumes.</text>
+</svg>
+
+The shape of that divergence explains why the naive join reaches production so often. At the volumes a developer works with — a few hundred incidents from a test extract — the nested loop finishes in under a second, and no profiler flags it. The cost is a product of two counts, so it only becomes visible when the count that grows during an incident actually grows.
+
+Two practical notes about building the index. It has to be built on the *layer being searched*, not on the incidents: `geopandas` builds `sindex` lazily on first access, so a join written in the wrong direction silently indexes the small side and keeps the linear scan on the large one. And the index answers a bounding-box question, not a containment one — the candidate set it returns still has to be tested exactly. Skipping that second test is a correctness bug that surfaces as incidents assigned to a neighbouring jurisdiction whose bounding box happens to overlap.
+
 ## Production Python Implementation
 
 The handler below normalizes and indexes the jurisdiction layer once, then joins each window index-first with an explicit fallback path. It uses full type hints, structured logging (no `print`), explicit exception boundaries, and emits an audit record on every degraded join so post-incident review can reconstruct exactly which assignments were approximate.
@@ -198,6 +232,30 @@ def on_window(joiner: ResilientIncidentJoiner, batch: pd.DataFrame) -> gpd.GeoDa
         logger.warning("Window served in degraded mode — review reconciliation queue")
     return result
 ```
+
+The other half of the cost lives in the CRS, and it is the half that turns a performance problem into a correctness one.
+
+<svg viewBox="0 0 880 360" role="img" aria-labelledby="cj-t cj-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="cj-t">What a mismatched CRS does to a spatial join, at three stages</title>
+  <desc id="cj-d">Three ways a join can be run against layers in different coordinate reference systems. If the frames carry different declared CRS values, geopandas raises and the join stops, which is the good outcome. If one layer has no CRS declared at all, the library assumes they match and joins raw coordinate values, so every incident falls outside every polygon and the join returns almost nothing without any error. If both are declared but one is reprojected inside the loop, the join is correct but reprojects the same geometries repeatedly, costing more than the join itself. Reprojecting both layers once, before the join, into a common projected CRS is the only arrangement that is both correct and fast.</desc>
+  <rect x="0" y="0" width="880" height="360" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">the join is only as good as the frames going into it</text>
+  <rect x="40" y="76" width="800" height="62" rx="9" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.6"/>
+  <text x="60" y="100" font-size="11" font-weight="700" fill="var(--crimson-deep)">different CRS, both declared → the library raises</text>
+  <text x="60" y="120" font-size="10" fill="currentColor">a loud failure, caught in development, fixed in one line — the outcome you want</text>
+  <rect x="40" y="150" width="800" height="62" rx="9" fill="var(--cream)" stroke="var(--ember)" stroke-width="2"/>
+  <text x="60" y="174" font-size="11" font-weight="700" fill="var(--ember-text)">one layer has no CRS → raw values are compared</text>
+  <text x="60" y="194" font-size="10" fill="currentColor">every incident falls outside every polygon · the join returns almost nothing · no error is raised</text>
+  <rect x="40" y="224" width="800" height="62" rx="9" fill="var(--petal)" stroke="var(--crimson)" stroke-width="1.6"/>
+  <text x="60" y="248" font-size="11" font-weight="700" fill="currentColor">reprojected inside the loop → correct, and slower than the join</text>
+  <text x="60" y="268" font-size="10" fill="currentColor">the same geometries transformed once per comparison instead of once per run</text>
+  <text x="8" y="322" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">Reproject both layers once, before the join, into a common projected CRS.</text>
+  <text x="8" y="342" font-size="10.5" fill="currentColor">The middle row is the dangerous one: an empty result set reads as "no incidents in any jurisdiction", which is a plausible sentence.</text>
+</svg>
+
+The middle row is worth guarding against explicitly, because an empty join result is a plausible-looking outcome. "No incidents fell inside any jurisdiction" is a sentence a system can produce for legitimate reasons — an extract covering a quiet period, a filter applied upstream — so nothing about the empty frame announces that the join was meaningless.
+
+Assert the CRS on both inputs before joining rather than relying on the library to notice. Two lines that raise on `crs is None`, and a comparison of the two EPSG codes, convert the silent failure into the loud one. It is the same fail-closed discipline the ingestion boundary applies, moved to the one place where a missing CRS produces a wrong answer rather than a rejected record.
 
 ## Validation Checklist
 

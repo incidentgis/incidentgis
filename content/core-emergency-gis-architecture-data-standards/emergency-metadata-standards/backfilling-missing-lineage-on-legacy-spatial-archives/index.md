@@ -158,6 +158,81 @@ The operational danger is that undocumented data still looks usable. A layer ren
   <text x="331" y="440" font-size="9.5" text-anchor="middle" fill="currentColor" opacity="0.85">reproducible and reversible</text>
 </svg>
 
+Before deciding how to backfill, it is worth knowing how much is actually recoverable, because the answer varies enormously by field and sets a hard ceiling on what the exercise can honestly claim.
+
+<svg viewBox="0 0 880 380" role="img" aria-labelledby="bl-t bl-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="bl-t">How much of an ISO 19115 lineage block can actually be recovered from a legacy archive</title>
+  <desc id="bl-d">Across a 4,200-file legacy spatial archive, the proportion of files for which each mandatory lineage field could be recovered. File modification time is available for 96 per cent, the coordinate reference for 88 per cent, and the source authority for 71 per cent — the last from directory naming conventions and file headers. Process steps could be reconstructed for only 23 per cent, and horizontal accuracy for 6 per cent. The first three are genuine recoveries from evidence in the files. The last two are mostly absent, and the correct outcome for them is an explicit unknown rather than a plausible default, because a lineage block asserting an accuracy nobody measured is worse than one admitting the accuracy is unknown.</desc>
+  <rect x="0" y="0" width="880" height="380" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">a 4,200-file legacy archive — what the files themselves can still tell you</text>
+  <text x="8" y="76" font-size="10" fill="var(--muted)">share of files where the field could be established from evidence</text>
+  <rect x="260" y="96" width="550" height="30" rx="5" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.1"/>
+  <rect x="260" y="96" width="537.6" height="30" rx="5" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="1.2"/>
+  <text x="8" y="116" font-size="10.5" fill="currentColor">file modification time</text>
+  <text x="832" y="116" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">96%</text>
+  <rect x="260" y="144" width="550" height="30" rx="5" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.1"/>
+  <rect x="260" y="144" width="397.6" height="30" rx="5" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="1.2"/>
+  <text x="8" y="164" font-size="10.5" fill="currentColor">source authority</text>
+  <text x="832" y="164" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">71%</text>
+  <rect x="260" y="192" width="550" height="30" rx="5" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.1"/>
+  <rect x="260" y="192" width="492.8" height="30" rx="5" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="1.2"/>
+  <text x="8" y="212" font-size="10.5" fill="currentColor">coordinate reference</text>
+  <text x="832" y="212" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">88%</text>
+  <rect x="260" y="240" width="550" height="30" rx="5" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.1"/>
+  <rect x="260" y="240" width="128.8" height="30" rx="5" fill="var(--petal)" stroke="var(--crimson-deep)" stroke-width="1.2"/>
+  <text x="8" y="260" font-size="10.5" fill="currentColor">process steps / lineage</text>
+  <text x="832" y="260" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">23%</text>
+  <rect x="260" y="288" width="550" height="30" rx="5" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.1"/>
+  <rect x="260" y="288" width="33.6" height="30" rx="5" fill="var(--ember)" opacity="0.65" stroke="var(--crimson-deep)" stroke-width="1.2"/>
+  <text x="8" y="308" font-size="10.5" fill="currentColor">horizontal accuracy</text>
+  <text x="832" y="308" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">6%</text>
+  <path d="M260 336 H810" fill="none" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <g font-size="10" text-anchor="middle" fill="var(--muted)">
+    <text x="260" y="354">0%</text><text x="400" y="354">25%</text><text x="540" y="354">50%</text>
+    <text x="680" y="354">75%</text><text x="810" y="354">100%</text>
+  </g>
+  <circle cx="266" cy="374" r="6" fill="var(--crimson)"/>
+  <text x="280" y="378" font-size="10" fill="currentColor">recovered from evidence</text>
+  <circle cx="470" cy="374" r="6" fill="var(--petal)"/>
+  <text x="484" y="378" font-size="10" fill="currentColor">reconstructed by inference</text>
+  <circle cx="680" cy="374" r="6" fill="var(--ember)" opacity="0.65"/>
+  <text x="694" y="378" font-size="10" fill="currentColor">must stay unknown</text>
+</svg>
+
+The top three fields are genuine recoveries. A file's modification time is a fact the filesystem kept; a coordinate reference is usually in the `.prj` or the container header; a source authority can often be read off a directory convention that an agency followed consistently for a decade. Establishing these is archaeology, not invention, and the resulting values are as good as any recorded at ingest.
+
+The bottom two are not, and the temptation with them is severe. `processStep` has an obvious plausible default — "digitised from imagery" is true of most of the archive — and `accuracy` has an obvious plausible number, whatever the agency's standard was at the time. Filling those in produces a complete-looking lineage block for every file, which is exactly what the backfill project was asked to deliver, and it is the wrong thing to deliver.
+
+<svg viewBox="0 0 880 340" role="img" aria-labelledby="mk-t mk-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="mk-t">Two lineage blocks that look identical to a consumer, and the field that separates them</title>
+  <desc id="mk-d">Two ISO 19115 lineage blocks for the same archived dataset. The first was recorded at ingest by the pipeline that produced the data and states its process steps as observed fact. The second was backfilled years later by inference from directory structure and file headers. Every field a consumer reads is populated identically in both. The only difference is a lineage provenance field marking the second as reconstructed, together with the method and the date of reconstruction. Without that field, a backfilled archive claims first-hand provenance it does not have, and an auditor cannot distinguish a lineage somebody recorded from one somebody guessed — which defeats the purpose of having a lineage at all.</desc>
+  <rect x="0" y="0" width="880" height="340" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">identical to every consumer — one field is the whole difference</text>
+  <rect x="40" y="70" width="380" height="180" rx="9" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.8"/>
+  <rect x="460" y="70" width="380" height="180" rx="9" fill="var(--cream)" stroke="var(--ember)" stroke-width="1.8"/>
+  <text x="60" y="96" font-size="11" font-weight="700" fill="var(--crimson-deep)">recorded at ingest</text>
+  <text x="480" y="96" font-size="11" font-weight="700" fill="var(--ember-text)">backfilled years later</text>
+  <g font-size="10.5" fill="currentColor">
+    <text x="60" y="124">dateStamp · 2019-06-14</text>
+    <text x="60" y="146">authority · Bernalillo County GIS</text>
+    <text x="60" y="168">referenceSystem · EPSG:2258</text>
+    <text x="60" y="190">processStep · digitised from orthophoto</text>
+    <text x="480" y="124">dateStamp · 2019-06-14</text>
+    <text x="480" y="146">authority · Bernalillo County GIS</text>
+    <text x="480" y="168">referenceSystem · EPSG:2258</text>
+    <text x="480" y="190">processStep · digitised from orthophoto</text>
+  </g>
+  <text x="60" y="222" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">provenance · observed</text>
+  <text x="480" y="222" font-size="10.5" font-weight="700" fill="var(--ember-text)">provenance · reconstructed</text>
+  <text x="480" y="240" font-size="9.5" fill="currentColor">method: directory convention + header · 2026-03-02</text>
+  <text x="8" y="290" font-size="10.5" fill="currentColor">Omit that field and the archive asserts first-hand provenance it does not have — which is worse than having none,</text>
+  <text x="8" y="308" font-size="10.5" fill="currentColor">because an auditor can no longer tell a lineage somebody recorded from one somebody inferred.</text>
+</svg>
+
+The distinguishing field costs nothing and carries the entire epistemic weight of the exercise. With it, an auditor querying the archive can separate the records whose lineage was observed from those whose lineage was inferred, and can weight them accordingly — which is what a lineage block is *for*. Without it, the backfill has quietly converted "we do not know how this dataset was produced" into "this dataset was produced as follows", and no subsequent process can undo that, because the evidence that it was a guess has been overwritten by the guess.
+
+Set `accuracy` to null rather than to the era's standard, and let the null propagate. A consumer that refuses to use a dataset with unknown accuracy is behaving correctly; one that uses a fabricated accuracy is behaving correctly too, on false information, which is the failure this whole section exists to prevent.
+
 ## Tiered Resolution Strategy
 
 Reconstruct lineage in ordered tiers, from strong direct evidence down to a safe default that is always flagged for review. The governing rule: never overwrite a validated field, and never let an inferred value lose its confidence badge.

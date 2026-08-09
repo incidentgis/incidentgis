@@ -155,6 +155,81 @@ FlatGeobuf and GeoPackage are both endorsed by the Open Geospatial Consortium (O
 <figcaption>Each layer is routed on two questions: if the device must edit or query it offline it becomes a GeoPackage; otherwise, if it is pulled over a narrow link it becomes a FlatGeobuf for partial range-read fetch, and if not it defaults to GeoPackage for offline queryability.</figcaption>
 </figure>
 
+The property that actually separates them is not encoding efficiency — the two are within a factor of two on size for typical incident layers — but whether a client can read a *part* of the file without holding the whole thing.
+
+<svg viewBox="0 0 880 380" role="img" aria-labelledby="fgb1-t fgb1-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="fgb1-t">What each format has to move to answer one bounding-box query on a field device</title>
+  <desc id="fgb1-d">A 340 megabyte regional layer is queried for one 4-kilometre working extent. FlatGeobuf, laid out as a header, a packed Hilbert R-tree index and Hilbert-sorted features, answers with three HTTP range reads: 1 kilobyte of header, 480 kilobytes of index, and 2.1 megabytes of contiguous feature bytes, because features near each other in space are near each other in the file. GeoPackage is a SQLite database and cannot be range-read usefully over HTTP, so the device must hold the whole 340 megabyte file locally before the same query can run at all; once it is local the query is fast and the file is also writable. The choice is therefore not about speed but about whether the working set can be fetched without the whole archive.</desc>
+  <rect x="0" y="0" width="880" height="380" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">one bounding-box query against a 340 MB regional layer</text>
+  <text x="8" y="80" font-size="11" font-weight="700" fill="currentColor">FlatGeobuf — seekable, Hilbert-sorted</text>
+  <rect x="60" y="94" width="760" height="46" rx="6" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <rect x="60" y="94" width="26" height="46" rx="6" fill="var(--crimson-deep)"/>
+  <rect x="86" y="94" width="96" height="46" fill="var(--petal)" stroke="var(--line-strong)" stroke-width="1"/>
+  <rect x="330" y="94" width="150" height="46" fill="var(--crimson)"/>
+  <text x="73" y="164" font-size="9.5" text-anchor="middle" fill="var(--muted)">header</text>
+  <text x="134" y="164" font-size="9.5" text-anchor="middle" fill="var(--muted)">R-tree index</text>
+  <text x="405" y="164" font-size="9.5" text-anchor="middle" fill="var(--crimson-deep)" font-weight="700">the working extent</text>
+  <text x="640" y="164" font-size="9.5" text-anchor="middle" fill="var(--muted)">the rest of the region — never fetched</text>
+  <text x="60" y="200" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">3 range reads · 1 KB + 480 KB + 2.1 MB = 2.6 MB moved</text>
+  <text x="8" y="248" font-size="11" font-weight="700" fill="currentColor">GeoPackage — SQLite, not seekable over HTTP</text>
+  <rect x="60" y="262" width="760" height="46" rx="6" fill="var(--ember)" opacity="0.4" stroke="var(--ember)" stroke-width="1.6"/>
+  <text x="440" y="290" font-size="11" font-weight="700" text-anchor="middle" fill="currentColor">the entire file must be local first</text>
+  <text x="60" y="336" font-size="10.5" font-weight="700" fill="var(--ember-text)">340 MB moved — then the same query is fast, and the file is writable</text>
+</svg>
+
+FlatGeobuf's layout is what makes that possible: a fixed header, then a packed Hilbert R-tree, then features sorted along the same Hilbert curve. Because spatially adjacent features are adjacent in the file, the extent a crew is working in resolves to a small number of contiguous byte ranges, and three HTTP range requests fetch it. The 337 megabytes describing the rest of the region are never transferred and never touch the device's disk.
+
+GeoPackage cannot do this, and the reason is structural rather than a missing feature. It is SQLite, and SQLite's pages are arranged for a random-access block device, not for a reader who can only afford a few ranges — a query walks B-tree pages scattered through the file, so "fetch what the query needs" degenerates to "fetch most of the file in small pieces", which is worse than fetching it once. What GeoPackage gives in exchange is everything FlatGeobuf structurally cannot: transactions, updates, deletes, multiple layers, and attribute indexes.
+
+<svg viewBox="0 0 880 360" role="img" aria-labelledby="fgb2-t fgb2-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="fgb2-t">Which format each field role needs, and the one property that decides it</title>
+  <desc id="fgb2-d">Four field roles plotted against the two properties that separate the formats. A reconnaissance tablet reading a regional layer over a thin link needs partial fetch and does not write, so FlatGeobuf fits. A forward command post editing a perimeter offline needs writes and transactions, so GeoPackage fits. A drone ground station streaming a fresh orthomosaic footprint needs append-only writing at speed, which FlatGeobuf gives. A shelter intake tablet updating occupancy all shift needs durable local writes with rollback, which only GeoPackage gives. The deciding question is never which format is faster — it is whether the device has to write, and whether it can afford the whole file.</desc>
+  <rect x="0" y="0" width="880" height="360" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">the deciding question is not speed — it is writes, and whether the whole file fits</text>
+  <text x="300" y="80" font-size="10.5" font-weight="700" text-anchor="middle" fill="var(--crimson-deep)">must write?</text>
+  <text x="470" y="80" font-size="10.5" font-weight="700" text-anchor="middle" fill="var(--crimson-deep)">whole file fits?</text>
+  <text x="620" y="80" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">format</text>
+  <g>
+    <rect x="230" y="94" width="140" height="52" rx="7" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.2"/>
+    <rect x="400" y="94" width="140" height="52" rx="7" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.2"/>
+    <rect x="230" y="160" width="140" height="52" rx="7" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.2"/>
+    <rect x="400" y="160" width="140" height="52" rx="7" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.2"/>
+    <rect x="230" y="226" width="140" height="52" rx="7" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.2"/>
+    <rect x="400" y="226" width="140" height="52" rx="7" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.2"/>
+    <rect x="230" y="292" width="140" height="52" rx="7" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.2"/>
+    <rect x="400" y="292" width="140" height="52" rx="7" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.2"/>
+  </g>
+  <g font-size="11" font-weight="700" text-anchor="middle">
+    <text x="300" y="126" fill="var(--ember-text)">no</text><text x="470" y="126" fill="var(--ember-text)">no</text>
+    <text x="300" y="192" fill="var(--crimson-deep)">yes</text><text x="470" y="192" fill="var(--crimson-deep)">yes</text>
+    <text x="300" y="258" fill="var(--ember-text)">no</text><text x="470" y="258" fill="var(--crimson-deep)">yes</text>
+    <text x="300" y="324" fill="var(--crimson-deep)">yes</text><text x="470" y="324" fill="var(--crimson-deep)">yes</text>
+  </g>
+  <g font-size="10.5" fill="currentColor">
+    <text x="8" y="118" font-weight="700">recon tablet</text><text x="8" y="134" font-size="9.5" fill="var(--muted)">regional layer, thin link</text>
+    <text x="8" y="184" font-weight="700">forward command post</text><text x="8" y="200" font-size="9.5" fill="var(--muted)">editing the perimeter offline</text>
+    <text x="8" y="250" font-weight="700">drone ground station</text><text x="8" y="266" font-size="9.5" fill="var(--muted)">streaming a fresh footprint</text>
+    <text x="8" y="316" font-weight="700">shelter intake tablet</text><text x="8" y="332" font-size="9.5" fill="var(--muted)">occupancy all shift</text>
+  </g>
+  <g font-size="11" font-weight="700" fill="var(--crimson-deep)">
+    <text x="600" y="118">FlatGeobuf</text>
+    <text x="600" y="184">GeoPackage</text>
+    <text x="600" y="250">FlatGeobuf</text>
+    <text x="600" y="316">GeoPackage</text>
+  </g>
+  <g font-size="9.5" fill="var(--muted)">
+    <text x="600" y="134">fetch the extent, not the archive</text>
+    <text x="600" y="200">transactions and rollback offline</text>
+    <text x="600" y="266">append-only, at streaming speed</text>
+    <text x="600" y="332">durable local writes all shift</text>
+  </g>
+</svg>
+
+Which is why the decision reduces to two questions asked in order. If the device writes, it needs GeoPackage and the whole-file transfer is simply the cost of doing business — schedule it during a connectivity window rather than trying to be clever. If it only reads, ask whether the whole file fits within budget: if it does, either format works and GeoPackage's tooling is more familiar; if it does not, FlatGeobuf is not the faster option, it is the only option.
+
+The trap is the third row. A drone ground station "writes", so it looks like a GeoPackage case, but it only ever appends and never updates — which FlatGeobuf handles at streaming speed and GeoPackage handles with transaction overhead it does not need. Distinguish appending from editing before letting the word "write" decide.
+
 ## Step-by-Step Implementation
 
 ### Step 1 — Profile the field constraint and select a format

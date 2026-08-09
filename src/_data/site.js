@@ -8,6 +8,7 @@ module.exports = {
   locale: "en_US",
   language: "en",
   themeColor: "#b3122e",
+  themeColorDark: "#14080b",
   backgroundColor: "#fff5f5",
   // Default Open Graph image (1200x630). Generated from the logo at build prep time.
   ogImage: "/assets/icons/og-default.png",

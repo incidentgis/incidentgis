@@ -367,6 +367,38 @@ def test_incident_topology(mock_incident_gdf: GeoDataFrame) -> None:
 
 Wiring `validate_topology` into a `pre-commit` configuration rejects malformed spatial payloads at the developer workstation, reducing the response latency that data corruption would otherwise inject mid-incident.
 
+The reason spatial version control needs two tracks rather than one is that a binary container defeats the mechanism Git is built on, and it does so silently.
+
+<svg viewBox="0 0 880 380" role="img" aria-labelledby="vc-t vc-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="vc-t">What a repository stores when one polygon vertex moves, under three strategies</title>
+  <desc id="vc-d">A 240 megabyte GeoPackage has one vertex of one polygon adjusted, forty times over an incident. Committing the GeoPackage directly stores a fresh 240 megabyte blob each time, because a binary SQLite file has no meaningful line-level delta — the repository grows to 9.6 gigabytes and no diff is readable. Storing it in Git LFS keeps the repository small but still stores forty full copies in the LFS backing store, and still shows no diff. Committing a canonical text serialisation alongside the container stores about 30 kilobytes of actual change across all forty commits, and every one of them is readable in a diff. The container is still needed for use, which is why the answer is two tracks rather than choosing between them.</desc>
+  <rect x="0" y="0" width="880" height="380" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">one vertex moved, forty times, on a 240 MB GeoPackage</text>
+  <rect x="300" y="94" width="512" height="34" rx="5" fill="var(--petal)" stroke="var(--ember)" stroke-width="2.4"/>
+  <rect x="300" y="156" width="512" height="34" rx="5" fill="var(--petal)" stroke="var(--ember)" stroke-width="2.4"/>
+  <rect x="300" y="218" width="6" height="34" rx="3" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="1.2"/>
+  <g font-size="10.5" fill="currentColor">
+    <text x="8" y="116">commit the GeoPackage</text>
+    <text x="8" y="178">Git LFS</text>
+    <text x="8" y="240">canonical text alongside it</text>
+  </g>
+  <g font-size="10.5" font-weight="700">
+    <text x="330" y="116" fill="currentColor">9.6 GB stored · no readable diff</text>
+    <text x="330" y="178" fill="currentColor">40 full copies in LFS · no readable diff</text>
+    <text x="320" y="240" fill="var(--crimson-deep)">~30 KB total · every change readable</text>
+  </g>
+  <rect x="40" y="284" width="800" height="76" rx="9" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.6"/>
+  <text x="60" y="310" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">so both tracks, not a choice between them</text>
+  <text x="60" y="332" font-size="10" fill="currentColor">the container is what the field actually uses · the canonical text is what carries the history, the review, and the merge</text>
+  <text x="60" y="350" font-size="10" fill="currentColor">and one lineage identifier ties a given container to the exact text revision that produced it</text>
+</svg>
+
+Git LFS is worth singling out because it is the answer most teams reach first and it solves the wrong half of the problem. It keeps the working repository small, which is a real benefit, and it does nothing at all for reviewability — the backing store still holds forty complete copies, and `git diff` on a commit still says "binary files differ". The question "what changed in this perimeter?" remains unanswerable, which is the question an after-action review asks.
+
+The canonical text track is what makes that question answerable, and *canonical* is the load-bearing word for the same reason it was in the offline-caching section. A serialisation with unstable feature ordering or non-deterministic coordinate formatting produces a full-file diff on every commit, at which point the text track costs storage and delivers nothing. Sort by a stable key, fix coordinate precision, and normalise ring winding before writing.
+
+Tying the two tracks together is one field and it is the piece most often missed. Each committed container records the text revision it was built from, so a GeoPackage found on a field device six months later can be traced to the exact reviewed change set that produced it — which is the whole chain-of-custody claim, and it does not survive the two tracks drifting apart.
+
 ## Configuration Reference
 
 | Parameter | Where it lives | Default | Purpose |
@@ -378,6 +410,37 @@ Wiring `validate_topology` into a `pre-commit` configuration rejects malformed s
 | `DVC_CACHE_DIR` | environment variable | repo `.dvc/cache` | Local content-addressed store for tracked binaries. |
 | `dvc remote` | `.dvc/config` | site object store | Shared backing store so field nodes can pull versioned data. |
 | branch prefix | branching policy | `incident/<id>` | Isolates an active response from `main` and from other incidents. |
+
+The two tracks only stay useful if the merge story is worked out in advance, because a spatial merge conflict is not a text merge conflict wearing different clothes.
+
+<svg viewBox="0 0 880 380" role="img" aria-labelledby="mg-t mg-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="mg-t">Four kinds of concurrent change, and which of them a text merge can resolve</title>
+  <desc id="mg-d">Four ways two branches can change a spatial layer. Edits to different features touch different regions of the canonical text and merge automatically, exactly as source code does. Edits to different attributes of the same feature also merge cleanly if the serialisation puts each attribute on its own line. Edits to the geometry of the same feature conflict textually and cannot be resolved by choosing lines, because a coordinate list half from each side is not a valid polygon — this needs the domain reconciler. A schema change on one side against feature edits on the other conflicts across the whole file and must be rebased rather than merged. Only the first two are safe to leave to Git, which is why the serialisation layout is a merge-behaviour decision rather than a formatting preference.</desc>
+  <rect x="0" y="0" width="880" height="380" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">the serialisation layout is a merge-behaviour decision, not a formatting preference</text>
+  <rect x="40" y="72" width="800" height="62" rx="9" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.6"/>
+  <text x="60" y="96" font-size="11" font-weight="700" fill="currentColor">different features</text>
+  <text x="60" y="118" font-size="10" fill="currentColor">disjoint regions of the text · merges automatically, exactly like source code</text>
+  <text x="700" y="108" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">Git handles it</text>
+  <rect x="40" y="144" width="800" height="62" rx="9" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.6"/>
+  <text x="60" y="168" font-size="11" font-weight="700" fill="currentColor">different attributes of one feature</text>
+  <text x="60" y="190" font-size="10" fill="currentColor">merges cleanly only if each attribute is on its own line — one-line-per-feature serialisation breaks this</text>
+  <text x="700" y="180" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">Git handles it</text>
+  <rect x="40" y="216" width="800" height="62" rx="9" fill="var(--cream)" stroke="var(--ember)" stroke-width="2"/>
+  <text x="60" y="240" font-size="11" font-weight="700" fill="var(--ember-text)">the geometry of one feature</text>
+  <text x="60" y="262" font-size="10" fill="currentColor">a coordinate list half from each side is not a polygon · choosing lines produces valid text and invalid geometry</text>
+  <text x="700" y="252" font-size="10.5" font-weight="700" fill="var(--ember-text)">domain reconciler</text>
+  <rect x="40" y="288" width="800" height="62" rx="9" fill="var(--cream)" stroke="var(--ember)" stroke-width="2"/>
+  <text x="60" y="312" font-size="11" font-weight="700" fill="var(--ember-text)">schema change vs feature edits</text>
+  <text x="60" y="334" font-size="10" fill="currentColor">conflicts across the whole file · rebase the feature edits onto the new schema, never merge</text>
+  <text x="700" y="324" font-size="10.5" font-weight="700" fill="var(--ember-text)">rebase, not merge</text>
+</svg>
+
+The second row is the one the serialisation choice decides. A GeoJSON-style layout with one feature per line is compact and human-scannable and makes every attribute edit conflict with every other attribute edit on the same feature — two analysts updating `containment_pct` and `ic_name` on one incident produce a conflict Git cannot resolve, for changes that do not overlap in any meaningful sense. Breaking each attribute onto its own line eliminates that entire class.
+
+The third row is where a text merge is actively dangerous rather than merely unhelpful. Git will happily let somebody resolve a coordinate-list conflict by taking some lines from each side, and the result is well-formed text describing a self-intersecting or unclosed ring. It will commit, and it may even load. This is the case that has to be routed to the same version-vector reconciler the multi-agency sync layer uses — the merge is a spatial operation, and the fact that it happens to be expressed as text is incidental.
+
+Configure a merge driver that refuses rather than attempts on geometry hunks. A tool that stops and says "this needs the reconciler" is worth more than one that produces a plausible result, for the same reason the ingestion boundary rejects rather than guesses.
 
 ## Verification and Smoke Test
 

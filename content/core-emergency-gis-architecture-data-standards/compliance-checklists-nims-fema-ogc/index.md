@@ -93,7 +93,7 @@ This workflow assumes a senior engineer's fluency with the Python geospatial and
 Compliance under ISO 22320 (the international standard for emergency management and incident coordination) and its United States implementation through NIMS is not a single yes/no gate — it is three independent standards, each with its own required data elements, evaluated against the same artifact. A situation report can satisfy every ICS-209 field yet be published through a feature service that fails OGC API - Features conformance, or ride on a conformant service while omitting a mandatory FEMA BPAS data element. The checklist architecture therefore treats each standard as a separate gate over a shared payload, evaluates all requirements within a gate (never failing fast), and merges the per-gate results into one conformance record. Each gate fails closed: an unmet requirement routes a discrete finding into the audit trail rather than silently downgrading the record to a pass. The diagram below maps the three standards onto the concrete data requirements each imposes and shows the fail-closed path to the nonconformance findings log.
 
 <figure class="diagram">
-<svg viewBox="0 0 900 380" role="img" aria-label="Gated conformance-checklist diagram: an incident dataset and situation report pass through three sequential gates, NIMS ICS-209 required fields, FEMA BPAS submission requirements, and OGC API - Features conformance classes, each fed by its concrete data requirements, then produce a single pass or fail conformance record, while any unmet requirement fails closed downward into a nonconformance findings and audit log." xmlns="http://www.w3.org/2000/svg" style="font-family:inherit">
+<svg viewBox="2 102 898 272" role="img" aria-label="Gated conformance-checklist diagram: an incident dataset and situation report pass through three sequential gates, NIMS ICS-209 required fields, FEMA BPAS submission requirements, and OGC API - Features conformance classes, each fed by its concrete data requirements, then produce a single pass or fail conformance record, while any unmet requirement fails closed downward into a nonconformance findings and audit log." xmlns="http://www.w3.org/2000/svg" style="font-family:inherit">
   <title>Three-gate conformance checklist for NIMS ICS-209, FEMA BPAS, and OGC API - Features</title>
   <desc>An incident dataset and situation report enter on the left and flow through three sequential gates. Gate one checks NIMS ICS-209 required fields: incident number and name, size and percent contained, and point of origin latitude and longitude. Gate two checks FEMA BPAS submission requirements: the submission schema, required data elements, and an authoritative source. Gate three checks OGC API - Features conformance classes: Core, GeoJSON, and OpenAPI 3.0. Passing all three produces a single conformance record marked pass or fail. Any unmet requirement in any gate fails closed downward into a shared nonconformance findings and audit log.</desc>
   <defs>
@@ -158,6 +158,65 @@ Compliance under ISO 22320 (the international standard for emergency management 
 </svg>
 <figcaption>The dataset and situation report pass three sequential gates — NIMS ICS-209 fields, FEMA BPAS elements, and OGC API - Features conformance classes — merging into one pass/fail record; any unmet requirement fails closed into the nonconformance findings log.</figcaption>
 </figure>
+
+Before writing any of it, settle what a finding is allowed to do. A conformance run does not produce a boolean; it produces a list of findings, each carrying a severity, and the verdict is a policy applied to that list rather than a property of the data.
+
+<svg viewBox="0 0 880 400" role="img" aria-labelledby="vd-title vd-desc" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="vd-title">One conformance run producing two different verdicts depending on how advisory findings are treated</title>
+  <desc id="vd-desc">A single conformance run over three checklists produces twelve findings: all five NIMS ICS-209 blocks pass, three of four FEMA BPAS elements pass with one advisory finding, and two of three OGC API conformance classes pass with one advisory finding on oas30. Under the default policy, where CONF_FAIL_ON_ADVISORY is false, there are no required findings so the dataset is recorded as conformant and the two advisory findings are logged without vetoing it. Under the strict policy, where the flag is true, exactly the same two findings veto the record and it is not conformant. The findings did not change; only the policy did, which is why the flag's value is recorded in every audit entry alongside the verdict.</desc>
+  <rect x="0" y="0" width="880" height="400" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">the same conformance run, two policies</text>
+  <circle cx="206" cy="64" r="6" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <text x="218" y="68" font-size="10" fill="currentColor">pass</text>
+  <circle cx="290" cy="64" r="6" fill="var(--ember)" opacity="0.45"/>
+  <text x="302" y="68" font-size="10" fill="currentColor">advisory finding</text>
+  <circle cx="430" cy="64" r="6" fill="var(--crimson)"/>
+  <text x="442" y="68" font-size="10" fill="currentColor">required finding (none in this run)</text>
+  <rect x="200" y="90" width="78" height="26" rx="6" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <text x="239" y="107" font-size="10" text-anchor="middle" fill="currentColor">block 1</text>
+  <rect x="286" y="90" width="78" height="26" rx="6" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <text x="325" y="107" font-size="10" text-anchor="middle" fill="currentColor">block 8</text>
+  <rect x="372" y="90" width="78" height="26" rx="6" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <text x="411" y="107" font-size="10" text-anchor="middle" fill="currentColor">block 29</text>
+  <rect x="458" y="90" width="78" height="26" rx="6" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <text x="497" y="107" font-size="10" text-anchor="middle" fill="currentColor">block 33</text>
+  <rect x="544" y="90" width="78" height="26" rx="6" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <text x="583" y="107" font-size="10" text-anchor="middle" fill="currentColor">block 41</text>
+  <rect x="200" y="150" width="78" height="26" rx="6" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <text x="239" y="167" font-size="10" text-anchor="middle" fill="currentColor">elem A</text>
+  <rect x="286" y="150" width="78" height="26" rx="6" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <text x="325" y="167" font-size="10" text-anchor="middle" fill="currentColor">elem B</text>
+  <rect x="372" y="150" width="78" height="26" rx="6" fill="var(--ember)" opacity="0.45" stroke="var(--ember)" stroke-width="1.3"/>
+  <text x="411" y="167" font-size="10" text-anchor="middle" fill="currentColor">elem C</text>
+  <rect x="458" y="150" width="78" height="26" rx="6" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <text x="497" y="167" font-size="10" text-anchor="middle" fill="currentColor">elem D</text>
+  <rect x="200" y="210" width="78" height="26" rx="6" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <text x="239" y="227" font-size="10" text-anchor="middle" fill="currentColor">core</text>
+  <rect x="286" y="210" width="78" height="26" rx="6" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <text x="325" y="227" font-size="10" text-anchor="middle" fill="currentColor">geojson</text>
+  <rect x="372" y="210" width="78" height="26" rx="6" fill="var(--ember)" opacity="0.45" stroke="var(--ember)" stroke-width="1.3"/>
+  <text x="411" y="227" font-size="10" text-anchor="middle" fill="currentColor">oas30</text>
+  <text x="8" y="108" font-size="10.5" font-weight="700" fill="currentColor">NIMS ICS-209</text>
+  <text x="8" y="168" font-size="10.5" font-weight="700" fill="currentColor">FEMA BPAS</text>
+  <text x="8" y="228" font-size="10.5" font-weight="700" fill="currentColor">OGC API</text>
+  <path d="M420 236 V252" fill="none" stroke="var(--crimson)" stroke-width="1.6"/>
+  <path d="M200 252 H700" fill="none" stroke="var(--crimson)" stroke-width="1.6"/>
+  <path d="M360 252 V266" fill="none" stroke="var(--crimson)" stroke-width="1.6"/>
+  <path d="M716 252 V266" fill="none" stroke="var(--crimson)" stroke-width="1.6"/>
+  <rect x="200" y="270" width="320" height="80" rx="9" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="2"/>
+  <rect x="560" y="270" width="312" height="80" rx="9" fill="var(--cream)" stroke="var(--ember)" stroke-width="2"/>
+  <text x="216" y="298" font-size="12.5" font-weight="700" fill="var(--crimson-deep)">CONFORMANT</text>
+  <text x="216" y="318" font-size="10" fill="var(--muted)">default · CONF_FAIL_ON_ADVISORY = false</text>
+  <text x="216" y="336" font-size="10" fill="currentColor">0 required · 2 advisory recorded</text>
+  <text x="576" y="298" font-size="12.5" font-weight="700" fill="var(--crimson-deep)">NOT CONFORMANT</text>
+  <text x="576" y="318" font-size="10" fill="var(--muted)">strict · CONF_FAIL_ON_ADVISORY = true</text>
+  <text x="576" y="336" font-size="10" fill="currentColor">the same 2 findings now veto</text>
+  <text x="440" y="380" font-size="11" text-anchor="middle" fill="var(--muted)">The findings did not change — which is why the flag is recorded next to the verdict.</text>
+</svg>
+
+The reason this is worth separating is that the same dataset is submitted to programs with different tolerances. A state mutual-aid exchange may accept a feed whose service does not publish an OpenAPI description, because no consumer in that exchange reads one; a federal program that generates client code from the description cannot. Encoding that difference as a policy flag rather than as two divergent checklists means the *findings* are comparable across programs even when the verdicts are not — and it means an argument about whether a submission should have passed is settled by reading one recorded flag rather than by reconstructing which version of which checklist ran.
+
+This is also why `CONF_FAIL_ON_ADVISORY` is written into every audit entry beside the verdict rather than left implicit in the deployment. A record stating "not conformant" is close to useless at review time; a record stating "not conformant under strict policy, two advisory findings, zero required" is a complete account of a decision, and it can be re-evaluated against a different policy months later without re-running anything.
 
 ## Step-by-Step Implementation
 
@@ -441,6 +500,39 @@ Tune these per deployment; a steady-state cloud validation service and an offlin
 | Advisory severity treatment | `CONF_FAIL_ON_ADVISORY` | `false` | When `true`, advisory failures also veto the record for strict programs. |
 | Audit sink path | `CONF_AUDIT_SINK` | `/var/local/conformance_audit.jsonl` | Durable append-only storage, never tmpfs. |
 | Offline conformance cache | `CONF_OGC_CACHE` | `/var/local/ogc_conformance.json` | Last-good declaration used when the service is unreachable. |
+
+Two of those parameters deserve reading together, because they describe the only part of the run that can fail for reasons that have nothing to do with the data. Three of the four checks are local: they read the dataset and a pinned checklist and cannot be slow. The OGC check makes an HTTP request.
+
+<svg viewBox="0 0 880 360" role="img" aria-labelledby="to-title to-desc" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="to-title">How the OGC conformance check behaves against a healthy, a saturated, and an unreachable service</title>
+  <desc id="to-desc">Three scenarios on a twelve-second timeline. Against a healthy feature service the conformance endpoint answers in 0.35 seconds and the verdict is recorded as fresh. Against a saturated service the request runs until the ten-second CONF_OGC_TIMEOUT_S ceiling and is abandoned, so the check falls back to the last-good cached declaration and marks the finding stale. Against an unreachable service the connection is refused after 2.1 seconds of retries and the same cached fallback applies. The OGC check is the only one of the four that touches the network, so it is the only one whose latency the operator can feel, and lowering the timeout on a flaky link converts a ten-second hang into a fast, honest, stale verdict.</desc>
+  <rect x="0" y="0" width="880" height="360" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">the OGC check is the only one that touches the network</text>
+  <text x="556" y="64" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">timeout = 10 s</text>
+  <g font-size="10" text-anchor="middle" fill="var(--muted)">
+    <text x="200" y="72">0 s</text><text x="293.3" y="72">2</text><text x="386.7" y="72">4</text><text x="480" y="72">6</text>
+    <text x="573.3" y="72">8</text><text x="666.7" y="72">10</text><text x="760" y="72">12 s</text>
+  </g>
+  <path d="M200 80 H760" fill="none" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <path d="M666.7 80 V290" fill="none" stroke="var(--crimson-deep)" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <text x="8" y="116" font-size="10.5" font-weight="700" fill="currentColor">healthy</text>
+  <rect x="200" y="96" width="16" height="30" rx="5" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.5"/>
+  <text x="224" y="116" font-size="10" fill="var(--muted)">0.35 s</text>
+  <text x="200" y="150" font-size="10.5" fill="currentColor">live conformance declaration · verdict recorded as fresh</text>
+  <text x="8" y="196" font-size="10.5" font-weight="700" fill="currentColor">saturated</text>
+  <rect x="200" y="176" width="466.7" height="30" rx="5" fill="var(--ember)" opacity="0.45" stroke="var(--ember)" stroke-width="1.5"/>
+  <text x="216" y="196" font-size="10" fill="currentColor">10.0 s — abandoned at the ceiling</text>
+  <text x="200" y="230" font-size="10.5" fill="currentColor">timeout → last-good cached declaration, finding marked stale</text>
+  <text x="8" y="276" font-size="10.5" font-weight="700" fill="currentColor">unreachable</text>
+  <rect x="200" y="256" width="98" height="30" rx="5" fill="var(--ember)" opacity="0.45" stroke="var(--ember)" stroke-width="1.5"/>
+  <text x="306" y="276" font-size="10" fill="var(--muted)">2.1 s</text>
+  <text x="200" y="310" font-size="10.5" fill="currentColor">connection refused → cached declaration, finding marked stale</text>
+  <text x="440" y="344" font-size="11" text-anchor="middle" fill="var(--muted)">Lowering the timeout on a flaky link buys a fast honest answer instead of a slow one.</text>
+</svg>
+
+The instinct with `CONF_OGC_TIMEOUT_S` is to raise it so that a slow service still gets a chance to answer. On a stable link that is reasonable. On the kind of link a forward node actually has, it converts every conformance run into a coin-flip between a fast verdict and a thirty-second hang, and because the run is usually invoked from a batch job nobody watches, the hang shows up as "the submission pipeline is slow today" rather than as a diagnosable failure.
+
+The cached declaration is what makes lowering the timeout safe. A conformance declaration changes when a service is redeployed, which is a matter of weeks — so a cached copy from the last successful fetch is very likely still accurate, and marking the finding stale records precisely the uncertainty involved. That is a much better artefact than either a hang or an absent check: the reviewer can see that the service was unreachable, that the last-known declaration was used, and when it was captured. Keep `CONF_OGC_CACHE` on durable storage rather than in the container's writable layer, or the fallback disappears at exactly the moment a restart storm makes it necessary.
 
 ## Verification & Smoke Test
 

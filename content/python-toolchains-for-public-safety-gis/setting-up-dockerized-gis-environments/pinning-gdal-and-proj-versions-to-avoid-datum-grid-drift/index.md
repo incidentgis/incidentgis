@@ -152,6 +152,34 @@ Close the gap in ordered tiers, from the definitive pin down to a safe default t
 4. **Fail closed on any mismatch (safe default with audit flag).** At startup, compare the running environment against the manifest; on drift, abort and emit an audit record naming the offending grid, so the machine is quarantined loudly instead of drifting quietly.
 5. **Bind every reprojection to a grid fingerprint.** Stamp outputs with the manifest hash so any feature can be replayed against the exact grids that produced it, satisfying the reconstructability the compliance regime demands.
 
+The failure this guide prevents has a specific shape: it is not that a transform breaks, but that two correct transforms disagree.
+
+<svg viewBox="0 0 880 380" role="img" aria-labelledby="dg-t dg-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="dg-t">The same NAD83 to WGS 84 transform under three PROJ configurations</title>
+  <desc id="dg-d">One control point is transformed from NAD83 2011 to WGS 84 under three configurations. With the full grid set present, PROJ selects a grid-based pipeline and returns the surveyed position, correct to about 10 millimetres. With the grid files absent, PROJ falls back to a parametric Helmert transformation and returns a position about 1.2 metres away — no error, no warning, and a coordinate that is entirely plausible. With a newer PROJ version that ships a revised default pipeline, it returns a position about 0.4 metres from the first. All three are legitimate answers from correctly functioning software; they differ because the pipeline selection differs, which is why pinning the version and vendoring the grids are two separate requirements rather than one.</desc>
+  <rect x="0" y="0" width="880" height="380" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">one control point, one CRS pair, three PROJ configurations</text>
+  <circle cx="300" cy="200" r="10" fill="var(--crimson)"/>
+  <text x="240" y="176" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">surveyed position</text>
+  <circle cx="546" cy="248" r="9" fill="var(--ember)"/>
+  <circle cx="382" cy="176" r="9" fill="var(--petal)" stroke="var(--crimson-deep)" stroke-width="2"/>
+  <path d="M310 202 L536 246" fill="none" stroke="var(--ember)" stroke-width="1.4" stroke-dasharray="4 4"/>
+  <path d="M308 194 L374 179" fill="none" stroke="var(--crimson-deep)" stroke-width="1.4" stroke-dasharray="4 4"/>
+  <text x="392" y="164" font-size="10" font-weight="700" fill="var(--crimson-deep)">0.4 m — newer PROJ, revised default pipeline</text>
+  <text x="470" y="278" font-size="10" font-weight="700" fill="var(--ember-text)">1.2 m — grids absent, parametric fallback</text>
+  <path d="M240 300 H340" fill="none" stroke="var(--muted)" stroke-width="1.4"/>
+  <path d="M240 295 V305 M340 295 V305" fill="none" stroke="var(--muted)" stroke-width="1.4"/>
+  <text x="348" y="304" font-size="10" fill="var(--muted)">0.5 m</text>
+  <rect x="40" y="326" width="800" height="44" rx="9" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.6"/>
+  <text x="60" y="354" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">all three are correct outputs of correctly functioning software — they differ because the pipeline differs</text>
+</svg>
+
+Neither divergent answer is a bug. PROJ falling back to a Helmert transformation when the grid is absent is documented, sensible behaviour — a metre-level answer is better than no answer for most uses. A newer PROJ shipping a revised default pipeline reflects genuine improvements in the published transformation parameters. Both are the software working as designed, and both make the container's output depend on something outside the container's source.
+
+That is the reason pinning the version and vendoring the grids are two requirements rather than one, and why satisfying only one of them leaves you exposed. Pin the version without the grids and every node runs the same code down the same fallback path — consistently 1.2 metres off, which is at least reproducible but wrong. Vendor the grids without pinning the version and the grids are present but a newer PROJ may prefer a different pipeline anyway.
+
+The assertion that catches all of it is the round-trip test from the container guide: transform a control point whose answer you know and compare to a millimetre. It is indifferent to *why* the pipeline changed and fires on every case above, which makes it worth more than any amount of version-string comparison.
+
 ## Production Python Implementation
 
 The routine below carries the full resolution path: it reads the pinned version and grid fingerprints, verifies them against a committed manifest, confirms that the critical datum transformation resolves to a grid-based operation rather than a coarse fallback, aborts on drift, and emits an immutable audit record binding the environment to a specific fingerprint. Senior-engineer assumptions apply: `pyproj` wraps the same PROJ the container pins, and the manifest is generated once on a trusted build and committed. Nothing here fetches from the network — offline determinism is the whole point.
@@ -321,6 +349,40 @@ def guard_reprojection_environment(manifest_path: Path) -> DatumAuditEntry:
 ```
 
 The `audit_log` and the returned `manifest_fingerprint` are the load-bearing outputs. Stamping every reprojected feature with that fingerprint lets a reviewer prove which grid set produced a coordinate, and wiring `guard_reprojection_environment` into a startup check turns "we think the field tablets match" into a build that cannot start when they do not — the same gate the [Spatial Data Testing & CI Pipelines](https://www.incidentgis.com/python-toolchains-for-public-safety-gis/spatial-data-testing-and-ci-pipelines/) workflow runs before an image is ever promoted.
+
+Vendoring the grids raises an obvious objection — the full PROJ grid set is large — and the answer is that you do not need the full set.
+
+<svg viewBox="0 0 880 360" role="img" aria-labelledby="gv-t gv-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="gv-t">Grid set size by scope, against a field image budget</title>
+  <desc id="gv-d">Four scopes for vendored PROJ transformation grids. The complete proj-data collection is about 1.1 gigabytes and is impractical to ship in a field image. The North America subset is about 340 megabytes. The grids for one state, covering every CRS pair an incident in that state uses, are about 26 megabytes. The grids for the specific CRS pairs a given pipeline actually invokes are about 4 megabytes. A 120 megabyte image budget accommodates the last two comfortably and neither of the first two, so the practical approach is to enumerate the CRS pairs the pipeline uses, vendor only those grids, and assert at start-up that each one is present.</desc>
+  <rect x="0" y="0" width="880" height="360" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">you do not need proj-data — you need the grids your CRS pairs actually invoke</text>
+  <rect x="300" y="88" width="512" height="32" rx="5" fill="var(--ember)" opacity="0.55" stroke="var(--ember)" stroke-width="1.3"/>
+  <rect x="300" y="140" width="158" height="32" rx="5" fill="var(--ember)" opacity="0.55" stroke="var(--ember)" stroke-width="1.3"/>
+  <rect x="300" y="192" width="13" height="32" rx="4" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="1.2"/>
+  <rect x="300" y="244" width="4" height="32" rx="2" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="1.2"/>
+  <g font-size="10.5" fill="currentColor">
+    <text x="8" y="110">complete proj-data</text>
+    <text x="8" y="162">North America subset</text>
+    <text x="8" y="214">one state, all CRS pairs</text>
+    <text x="8" y="266">the pairs this pipeline uses</text>
+  </g>
+  <g font-size="10.5" font-weight="700">
+    <text x="822" y="110" fill="var(--ember-text)">1.1 GB</text>
+    <text x="470" y="162" fill="var(--ember-text)">340 MB</text>
+    <text x="325" y="214" fill="var(--crimson-deep)">26 MB</text>
+    <text x="316" y="266" fill="var(--crimson-deep)">4 MB</text>
+  </g>
+  <path d="M356 78 V292" fill="none" stroke="var(--crimson-deep)" stroke-width="1.6" stroke-dasharray="5 4"/>
+  <text x="364" y="72" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">120 MB field image budget</text>
+  <text x="8" y="326" font-size="10.5" fill="currentColor">Enumerate the pairs the pipeline invokes, vendor those grids, and assert each one at start-up.</text>
+</svg>
+
+Enumerating the pairs is easier than it sounds, because a pipeline that has been through the CRS discipline in this section already declares them. The ingestion boundary knows the source systems it accepts; the analysis step knows the projected CRS it works in; the publish step knows the interchange CRS. That is a small, finite list, and `projinfo` will name the grids each pair needs.
+
+The assertion matters as much as the vendoring. A grid that is missing from the image behaves exactly like a grid that was never needed — PROJ silently takes the parametric path — so an image that lost a grid file in a refactor is indistinguishable from one that never had it. Asserting the presence of each expected grid at start-up turns that into a container that refuses to start, which is the correct outcome for a node whose entire job is to produce coordinates.
+
+One caution when the incident crosses a boundary the enumeration did not anticipate: a mutual-aid deployment into an adjacent state will invoke a CRS pair the image was never built for, and the assertion will not fire because nothing asserts on a pair the pipeline did not expect. Make the transform wrapper raise on any pair outside the declared set rather than falling through to whatever PROJ can manage — an explicit refusal is recoverable in minutes; a silent parametric fallback is not recoverable at all.
 
 ## Validation Checklist
 

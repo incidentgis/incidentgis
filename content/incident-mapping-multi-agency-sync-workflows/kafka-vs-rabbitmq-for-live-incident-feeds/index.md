@@ -213,6 +213,83 @@ Emergency feeds impose three requirements that ordinary message queues rarely al
 
 The matrix is deliberately not a verdict. A regional deployment often runs both: Kafka as the system of record that every consumer can replay, and RabbitMQ as the task-and-command layer where a dispatcher's assignment must reach exactly one crew with an explicit acknowledgement. The rest of this page implements each path so the choice can be made against measured behaviour rather than reputation.
 
+Two properties decide this in practice, and neither of them is throughput — both brokers move far more than an incident feed produces. The first is what survives a consumer being away.
+
+<svg viewBox="0 0 880 400" role="img" aria-labelledby="kr-t kr-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="kr-t">What each broker still holds when a consumer comes back after a two-hour outage</title>
+  <desc id="kr-d">A consumer is offline for two hours during an incident. Kafka keeps a partitioned log on disk with a retention period measured in days, so the messages published during the outage are still there and the consumer resumes from its committed offset and replays all of them in order. RabbitMQ routes messages to queues and removes them once acknowledged, so an unacknowledged message stays only while its queue lives and its TTL holds; a durable queue with a long TTL preserves the outage window, but the messages already acknowledged by other consumers are gone and there is no offset to rewind to. The distinction is not durability — both can be durable — it is whether the broker is a log you can seek in or a queue you drain.</desc>
+  <rect x="0" y="0" width="880" height="400" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">a consumer returns after two hours — what is still there to read?</text>
+  <text x="8" y="86" font-size="11" font-weight="700" fill="currentColor">Kafka · partitioned log</text>
+  <rect x="60" y="100" width="760" height="46" rx="6" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.6"/>
+  <g stroke="var(--line-strong)" stroke-width="1">
+    <path d="M180 100 V146"/><path d="M300 100 V146"/><path d="M420 100 V146"/><path d="M540 100 V146"/><path d="M660 100 V146"/>
+  </g>
+  <rect x="300" y="100" width="360" height="46" fill="var(--crimson)" opacity="0.35"/>
+  <path d="M300 160 V176" fill="none" stroke="var(--crimson-deep)" stroke-width="1.6"/>
+  <text x="252" y="192" font-size="10" font-weight="700" fill="var(--crimson-deep)">committed offset</text>
+  <path d="M660 160 V176" fill="none" stroke="var(--crimson-deep)" stroke-width="1.6"/>
+  <text x="620" y="192" font-size="10" font-weight="700" fill="var(--crimson-deep)">log head</text>
+  <text x="404" y="128" font-size="10.5" font-weight="700" fill="currentColor">the outage window — still on disk</text>
+  <text x="60" y="216" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">seek to the offset and replay in order · retention measured in days</text>
+  <text x="8" y="262" font-size="11" font-weight="700" fill="currentColor">RabbitMQ · queue</text>
+  <rect x="60" y="276" width="760" height="46" rx="6" fill="var(--cream)" stroke="var(--ember)" stroke-width="1.6"/>
+  <rect x="600" y="276" width="220" height="46" fill="var(--petal)" stroke="var(--crimson-deep)" stroke-width="1.2"/>
+  <text x="616" y="304" font-size="10.5" font-weight="700" fill="currentColor">unacked, still queued</text>
+  <text x="200" y="304" font-size="10.5" font-weight="700" fill="var(--ember-text)">acknowledged and removed — no offset to rewind to</text>
+  <text x="60" y="352" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">durable queues and TTLs preserve the window; nothing preserves what another consumer already took</text>
+  <text x="8" y="388" font-size="10.5" fill="currentColor">Both can be durable. Only one of them is a log you can seek in.</text>
+</svg>
+
+Kafka's retention is a property of the log rather than of any consumer, so "what happened between 14:00 and 16:00" is a question the broker can still answer regardless of who was listening at the time. That is unusually valuable during an incident: a partner agency that joins at hour six can read the whole event from the beginning, and an after-action review can replay the exact message stream that produced a decision.
+
+RabbitMQ can be made durable — durable queues, persistent messages, generous TTLs — and a queue that existed throughout the outage will still hold its unacknowledged messages. What it cannot do is let a *new* consumer read history, because the messages other consumers acknowledged are gone and there is no offset to rewind to. If every consumer is known in advance and stays for the whole incident, that difference never appears. If consumers arrive unannounced, it is the whole story.
+
+The second property is what an additional reader costs.
+
+<svg viewBox="0 0 880 380" role="img" aria-labelledby="kf-t kf-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="kf-t">Adding a fifth consumer to each broker, and what it costs the ones already there</title>
+  <desc id="kf-d">Four consumers are reading an incident feed and a fifth is added mid-incident. Under Kafka each consumer group holds its own offset into the same partitions, so the new group reads the same bytes independently and the four existing consumers are unaffected — the broker's work is unchanged because it serves the same log. Under RabbitMQ a fan-out exchange must place a copy of every message into a fifth queue, so both the broker's memory and its per-message work rise with the number of consumers, and adding the fifth during a surge is exactly when that cost lands. This is the property that usually decides an incident feed: how many independent readers arrive unannounced, and whether they can be allowed to.</desc>
+  <rect x="0" y="0" width="880" height="380" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">a fifth agency subscribes mid-incident</text>
+  <text x="8" y="84" font-size="11" font-weight="700" fill="currentColor">Kafka</text>
+  <rect x="120" y="96" width="200" height="44" rx="7" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="1.6"/>
+  <text x="140" y="123" font-size="10.5" font-weight="700" fill="var(--cream)">one partitioned log</text>
+  <g fill="none" stroke="var(--crimson)" stroke-width="1.5">
+    <path d="M320 106 H420"/><path d="M320 114 H420"/><path d="M320 122 H420"/><path d="M320 130 H420"/>
+  </g>
+  <path d="M320 138 H420" fill="none" stroke="var(--ember)" stroke-width="2" stroke-dasharray="5 3"/>
+  <g font-size="10" fill="currentColor">
+    <text x="430" y="110">group A · own offset</text>
+    <text x="430" y="126">group B · own offset</text>
+    <text x="430" y="142">group C · own offset</text>
+    <text x="430" y="158">group D · own offset</text>
+  </g>
+  <text x="430" y="176" font-size="10" font-weight="700" fill="var(--ember-text)">group E · own offset — costs the others nothing</text>
+  <text x="8" y="230" font-size="11" font-weight="700" fill="currentColor">RabbitMQ</text>
+  <rect x="120" y="242" width="200" height="44" rx="7" fill="var(--petal)" stroke="var(--crimson-deep)" stroke-width="1.6"/>
+  <text x="140" y="269" font-size="10.5" font-weight="700" fill="currentColor">fan-out exchange</text>
+  <g>
+    <rect x="430" y="238" width="88" height="26" rx="5" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="530" y="238" width="88" height="26" rx="5" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="630" y="238" width="88" height="26" rx="5" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="730" y="238" width="88" height="26" rx="5" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.1"/>
+    <rect x="530" y="278" width="88" height="26" rx="5" fill="var(--cream)" stroke="var(--ember)" stroke-width="2"/>
+  </g>
+  <g font-size="9.5" text-anchor="middle" fill="currentColor">
+    <text x="474" y="255">queue A</text><text x="574" y="255">queue B</text><text x="674" y="255">queue C</text><text x="774" y="255">queue D</text>
+    <text x="574" y="295" fill="var(--ember-text)" font-weight="700">queue E</text>
+  </g>
+  <path d="M320 258 H424" fill="none" stroke="var(--crimson)" stroke-width="1.5"/>
+  <path d="M360 258 V291 H524" fill="none" stroke="var(--ember)" stroke-width="2" stroke-dasharray="5 3"/>
+  <text x="8" y="336" font-size="10.5" fill="currentColor">A copy of every message into a fifth queue — broker memory and per-message work both rise with the reader count,</text>
+  <text x="8" y="354" font-size="10.5" fill="currentColor">and the fifth reader arrives during the surge, which is when that cost is least affordable.</text>
+</svg>
+
+This is the one that usually settles it for a multi-agency feed, because mutual aid means readers you did not plan for. Under Kafka a new consumer group is an offset and some read bandwidth; the four groups already reading are unaffected, and the broker's write path does not change at all. Under a fan-out exchange, each additional queue is another copy of every message, so the broker's memory and per-message work scale with the reader count — and the reader that pushes it over is the one that subscribed because the incident got large.
+
+None of which makes RabbitMQ the wrong choice generally. Its routing is far richer, its operational surface is smaller, and for a fixed set of consumers doing work-queue distribution — the dispatch side rather than the feed side — it is the better fit. Choose by asking whether readers arrive unannounced and whether anyone will need to replay history, not by comparing throughput numbers that neither of them will be near.
+
 ## Step-by-Step Implementation
 
 ### Step 1 — Map requirements to broker semantics

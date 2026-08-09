@@ -96,15 +96,16 @@ The failure modes are concrete and recurring. A geocoder returns null-island coo
     <!-- COP → audit log tap -->
     <path d="M672,215 H632" marker-end="url(#cop-flow-dim)"/>
     <!-- schema gate fail-closed → reject -->
-    <path d="M561,116 V310" stroke-dasharray="5 4" marker-end="url(#cop-flow-dim)"/>
+    <path d="M561,116 V152 H471 V330 H490" stroke-dasharray="5 4" marker-end="url(#cop-flow-dim)"/>
     <!-- delta sync → degraded fork -->
-    <path d="M672,338 H452" stroke-dasharray="5 4" marker-end="url(#cop-flow-dim)"/>
+    <path d="M741,364 V388 H381 V366" stroke-dasharray="5 4" marker-end="url(#cop-flow-dim)"/>
     <!-- local cache replay back up to normalize -->
     <path d="M381,312 V210 H310" stroke-dasharray="5 4" marker-end="url(#cop-flow-dim)"/>
   </g>
   <g font-size="9.5" fill="currentColor" text-anchor="middle">
-    <text x="596" y="150" transform="rotate(90 596 150)">fail-closed</text>
-    <text x="560" y="304">replay on reconnect</text>
+    <text x="462" y="232" transform="rotate(90 462 232)">fail-closed</text>
+    <text x="368" y="252" transform="rotate(90 368 252)">replay on reconnect</text>
+    <text x="560" y="382">degraded-mode fork</text>
   </g>
 </svg>
 
@@ -316,7 +317,71 @@ def resolve_conflict(
     return merged
 ```
 
-For conflict-free replicated data types (CRDTs), operational transforms, and distributed consensus patterns, consult [Conflict Resolution in Multi-Agency Edits](https://www.incidentgis.com/incident-mapping-multi-agency-sync-workflows/conflict-resolution-in-multi-agency-edits/).
+The sequence below is the case the resolver exists for: two branches editing the same structure record inside the same tick, from devices whose clocks were never synchronised to each other.
+
+<svg viewBox="0 0 880 400" role="img" aria-labelledby="seq-title seq-desc" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="seq-title">Two agencies editing one record inside a single tick, and how the resolver decides</title>
+  <desc id="seq-desc">A sequence diagram with five participants: Fire branch, Police branch, the conflict resolver, the Common Operating Picture store, and the audit log. Fire sends status equals evacuated at 14:02:11.0. Police sends status equals secured at 14:02:11.4. The resolver compares the pair: the edits are 0.4 seconds apart and therefore concurrent, so it does not order them by clock; it applies agency priority, where Fire outranks Police for structure status. It commits the Fire value to the Common Operating Picture store and marks the Police value superseded rather than discarding it, then appends both versions and the identifier of the rule applied to the audit log. Both edits survive; only one is authoritative.</desc>
+  <rect x="0" y="0" width="880" height="400" fill="var(--blush)"/>
+  <defs>
+    <marker id="seq-tip" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="var(--crimson)"/>
+    </marker>
+  </defs>
+  <!-- participants -->
+  <g>
+    <rect x="20" y="28" width="140" height="42" rx="8" fill="var(--cream)" stroke="var(--crimson)" stroke-width="1.6"/>
+    <rect x="180" y="28" width="140" height="42" rx="8" fill="var(--cream)" stroke="var(--crimson)" stroke-width="1.6"/>
+    <rect x="360" y="28" width="140" height="42" rx="8" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="2"/>
+    <rect x="540" y="28" width="140" height="42" rx="8" fill="var(--cream)" stroke="var(--crimson)" stroke-width="1.6"/>
+    <rect x="720" y="28" width="140" height="42" rx="8" fill="var(--cream)" stroke="var(--crimson)" stroke-width="1.6"/>
+  </g>
+  <g font-size="11.5" font-weight="700" text-anchor="middle" fill="var(--crimson-deep)">
+    <text x="90" y="47">Fire branch</text>
+    <text x="250" y="47">Police branch</text>
+    <text x="430" y="47">Conflict resolver</text>
+    <text x="610" y="47">COP store</text>
+    <text x="790" y="47">Audit log</text>
+  </g>
+  <g font-size="10" text-anchor="middle" fill="var(--muted)">
+    <text x="90" y="62">priority 3</text>
+    <text x="250" y="62">priority 2</text>
+    <text x="430" y="62">deterministic</text>
+    <text x="610" y="62">authoritative state</text>
+    <text x="790" y="62">append-only</text>
+  </g>
+  <!-- lifelines -->
+  <g stroke="var(--line-strong)" stroke-width="1.2" stroke-dasharray="4 5">
+    <path d="M90 70 V352"/><path d="M250 70 V352"/><path d="M430 70 V352"/><path d="M610 70 V352"/><path d="M790 70 V352"/>
+  </g>
+  <!-- messages -->
+  <g fill="none" stroke="var(--crimson)" stroke-width="1.7" marker-end="url(#seq-tip)">
+    <path d="M90 116 H424"/>
+    <path d="M250 156 H424"/>
+    <path d="M430 278 H604"/>
+    <path d="M430 320 H784"/>
+  </g>
+  <g font-size="10.5" text-anchor="middle" fill="currentColor">
+    <text x="257" y="106">status = evacuated · 14:02:11.0</text>
+    <text x="337" y="146">status = secured · 14:02:11.4</text>
+    <text x="517" y="264">commit FIRE · POLICE marked superseded</text>
+    <text x="607" y="308">append both versions + rule id</text>
+  </g>
+  <!-- resolver note -->
+  <rect x="345" y="176" width="170" height="56" rx="8" fill="var(--cream)" stroke="var(--crimson-deep)" stroke-width="1.5"/>
+  <g font-size="10" text-anchor="middle" fill="currentColor">
+    <text x="430" y="194">0.4 s apart → concurrent</text>
+    <text x="430" y="209">FIRE 3 &gt; POLICE 2</text>
+    <text x="430" y="224">ordered by rank, not clock</text>
+  </g>
+  <text x="440" y="382" font-size="11" text-anchor="middle" fill="var(--muted)">Both edits survive the exchange; only one of them is authoritative.</text>
+</svg>
+
+Two design commitments are visible in that exchange and both are deliberate. The first is that the resolver never orders concurrent edits by wall-clock time. Field tablets, agency laptops and vehicle-mounted terminals do not share a clock, and a 400-millisecond difference between two timestamps carries no information about which editor acted second — it may just as easily mean one device's clock is 400 milliseconds fast. Ordering by a stable, declared authority ranking is the only tie-break that produces the same answer on every replica, which is the property that actually matters: a resolver that is *wrong* consistently is recoverable, while a resolver that is *right* inconsistently silently forks the picture.
+
+The second is that the losing edit is marked superseded rather than dropped. This is what makes the after-action review possible at all. When a reviewer asks why a structure showed as evacuated at 14:02 while a law-enforcement unit was reporting it secured, the audit log has to be able to answer with both values, both authorities, and the identifier of the rule that chose between them. A resolver that emits only its winner produces a COP that is internally consistent and historically unaccountable — which satisfies the sync requirement and fails the ISO 22320 traceability requirement in the same stroke.
+
+Priority-weighted last-writer-wins is not the most sophisticated option available, and that is largely the point. It is inspectable by an incident commander who is not an engineer, its behaviour under any pair of inputs can be stated in one sentence, and its priority table is a policy artefact that agencies can negotiate before an incident rather than discover during one. For conflict-free replicated data types (CRDTs), operational transforms, and distributed consensus patterns — worth the additional complexity when edits are continuous rather than discrete, as with a perimeter being dragged — consult [Conflict Resolution in Multi-Agency Edits](https://www.incidentgis.com/incident-mapping-multi-agency-sync-workflows/conflict-resolution-in-multi-agency-edits/).
 
 ## Resilient Synchronization & Low-Bandwidth Protocols
 
@@ -375,7 +440,13 @@ The local GeoPackage that backs this client is the same store described in [Offl
 
 The patterns above do not run in isolation — they sit on top of the shared standards defined elsewhere on this site, and they break in predictable ways when those upstream contracts are skipped. Every payload arriving on the MQTT bus must already have passed through a hardened [Geospatial Data Ingestion Pipeline](https://www.incidentgis.com/core-emergency-gis-architecture-data-standards/geospatial-data-ingestion-pipelines/) before the normalization layer trusts it; ingestion owns idempotency keys and deduplication, so the sync layer never has to reason about replayed messages. The full set of architectural prerequisites — CRS enforcement, metadata lineage, and storage conventions — lives in [Core Emergency GIS Architecture & Data Standards](https://www.incidentgis.com/core-emergency-gis-architecture-data-standards/), and the runtime, packaging, and dependency-pinning choices that keep these services reproducible across agency environments are covered in [Python Toolchains for Public Safety GIS](https://www.incidentgis.com/python-toolchains-for-public-safety-gis/).
 
+The direction of that dependency is worth stating plainly, because reversing it is a common and expensive mistake. The sync layer consumes guarantees; it does not manufacture them. If deduplication is pushed downstream into the resolver "because that is where we already compare records," the resolver acquires a second responsibility whose failure mode is indistinguishable from its first: a replayed message and a genuine concurrent edit both arrive as two versions of one record, and no rule can separate them after the idempotency key has been discarded. The same applies to coordinate normalization. A resolver comparing a perimeter in EPSG:4326 against the same perimeter in a local UTM zone will find them wildly different and will faithfully, deterministically, pick a winner — producing exactly the confident wrong answer the architecture exists to prevent.
+
+Practically, this means each boundary should be able to state what it assumes and what it refuses in a single sentence, and those sentences should compose. Ingestion refuses anything without an idempotency key and an explicit source CRS. Normalization refuses anything it cannot place inside the operational area of interest. The schema gate refuses anything that does not satisfy the record contract. The resolver refuses nothing — by the time a payload reaches it, every refusal that could have been made has been made, and its only job is to choose between two records that are each individually valid. A resolver that still needs to validate is a sign that a boundary upstream of it has been skipped, and it is worth treating that as an architectural defect rather than defensive programming.
+
 Multi-jurisdictional response also requires adherence to established exchange standards. Ad-hoc JSON schemas create vendor lock-in and break cross-agency sharing. Production systems align with the Emergency Data Exchange Language (EDXL), the National Information Exchange Model (NIEM), the Common Alerting Protocol (CAP), and the Open Geospatial Consortium (OGC) API Features specification to interoperate between legacy CAD systems, modern GIS platforms, and federal reporting portals. Python's `lxml` and `fastjsonschema` libraries enable bidirectional translation between proprietary formats and these standardized schemas at the adapter boundary, keeping the internal COP contract clean.
+
+Two consumers of the reconciled picture deserve their own treatment because their failure modes reach outside the response. [Public alerting and CAP message pipelines](https://www.incidentgis.com/incident-mapping-multi-agency-sync-workflows/public-alerting-and-cap-message-pipelines/) turn a reconciled perimeter into a message the public acts on, where the delivered area is reshaped by every channel and is never the polygon that was authored. [AVL and resource tracking feeds](https://www.incidentgis.com/incident-mapping-multi-agency-sync-workflows/avl-and-resource-tracking-feeds/) carry the highest message volume in the response and answer questions that mostly do not need a precise position at all.
 
 ## Compliance & Audit Trail Requirements
 
@@ -445,7 +516,60 @@ The first thing to break under surge load is rarely the database — it is the i
 | Concurrent agency edits collide | Two `updated_at` values within one tick | Priority-weighted LWW resolves deterministically; both versions written to the audit log |
 | Legacy CAD ships off-contract fields | Pydantic `ValidationError` at the boundary | Reject at ingestion, log the raw payload, never let malformed data reach the COP store |
 
-The governing principle is fail-closed for data integrity and fail-open for availability: never commit a record you cannot trust, but never lose an edit because the network was down. A reconnecting device must always be able to replay its queued deltas against the resolver and converge on the same COP state every other replica holds.
+The governing principle is fail-closed for data integrity and fail-open for availability: never commit a record you cannot trust, but never lose an edit because the network was down. Those are two independent questions, and the reason teams get this wrong is that they collapse them into one. "Is the record trustworthy?" and "can we reach the network?" have four combinations, not two, and each combination has its own correct behaviour.
+
+<svg viewBox="0 0 880 420" role="img" aria-labelledby="quad-title quad-desc" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="quad-title">The four combinations of record trustworthiness and network availability, and the correct response to each</title>
+  <desc id="quad-desc">A two-by-two matrix. Columns divide records that cannot be trusted from records that are trustworthy; rows divide a network that is available from one that is down. Untrusted record with a network available: fail closed and reject to the review queue, as with an off-contract computer-aided dispatch payload or a null-island zero-zero geocode. Trusted record with a network available: commit and broadcast, the only path that reaches every replica. Untrusted record with the network down: fail closed and then persist, keeping the rejection locally so a malformed offline edit replays into review on reconnect. Trusted record with the network down: fail open and queue the delta, as with a cellular drop mid-edit or broker saturation under surge. The bottom-left quadrant is the one teams forget, because it needs both behaviours at once.</desc>
+  <rect x="0" y="0" width="880" height="420" fill="var(--blush)"/>
+  <!-- column headers -->
+  <g font-size="11.5" font-weight="700" text-anchor="middle" fill="var(--crimson-deep)">
+    <text x="360" y="48">record cannot be trusted</text>
+    <text x="680" y="48">record is trustworthy</text>
+  </g>
+  <!-- row labels -->
+  <g font-size="11.5" font-weight="700" fill="var(--crimson-deep)">
+    <text x="8" y="124">network</text>
+    <text x="8" y="140">available</text>
+    <text x="8" y="264">network</text>
+    <text x="8" y="280">down</text>
+  </g>
+  <!-- quadrants -->
+  <rect x="208" y="68" width="304" height="124" rx="10" fill="var(--cream)" stroke="var(--crimson-deep)" stroke-width="1.8"/>
+  <rect x="528" y="68" width="304" height="124" rx="10" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="2"/>
+  <rect x="208" y="208" width="304" height="124" rx="10" fill="var(--cream)" stroke="var(--crimson-deep)" stroke-width="1.8"/>
+  <rect x="528" y="208" width="304" height="124" rx="10" fill="var(--cream)" stroke="var(--ember)" stroke-width="1.8"/>
+  <!-- quadrant content -->
+  <g font-size="12" font-weight="700" fill="var(--crimson-deep)">
+    <text x="226" y="98">Fail closed — reject</text>
+    <text x="546" y="98">Commit and broadcast</text>
+    <text x="226" y="238">Fail closed, then persist</text>
+    <text x="546" y="238">Fail open — queue</text>
+  </g>
+  <g font-size="10.5" fill="var(--muted)">
+    <text x="226" y="118">never commit what you cannot trust</text>
+    <text x="546" y="118">the only path that reaches replicas</text>
+    <text x="226" y="258">keep the rejection where it happened</text>
+    <text x="546" y="258">never lose an edit to a dead network</text>
+  </g>
+  <g font-size="10.5" fill="currentColor">
+    <text x="226" y="146">· off-contract CAD payload</text>
+    <text x="226" y="168">· null-island (0, 0) geocode</text>
+    <text x="546" y="146">· validated delta, any agency</text>
+    <text x="546" y="168">· resolver output, audit tapped</text>
+    <text x="226" y="286">· malformed edit made offline</text>
+    <text x="226" y="308">· replays into review on reconnect</text>
+    <text x="546" y="286">· cellular drop mid-edit</text>
+    <text x="546" y="308">· broker saturation under surge</text>
+  </g>
+  <text x="440" y="372" font-size="11" text-anchor="middle" fill="var(--muted)">The lower-left quadrant is the one that gets skipped — it is the only one that needs both behaviours at once.</text>
+</svg>
+
+The upper row is where most implementations are correct by accident, because a live network makes both the reject path and the commit path easy to reach. The lower-right is where offline-first design earns its keep, and it is well understood: queue the delta, back off with jitter, replay on reconnect. The quadrant that gets skipped is the lower-left — a malformed edit produced by a device that is *also* offline. The tempting shortcut is to validate only at the server, which means the device happily queues a payload that the resolver will reject an hour later, when the responder who could have corrected it has moved to a different division and the structure it described has already been re-tasked.
+
+The correct behaviour is to run the same schema contract on the device, reject locally, and queue the *rejection* rather than the record — so that on reconnect the review queue receives a dated, attributed report of an edit that was attempted and refused, instead of receiving nothing at all. This is the practical reason the record contract is defined once and shared, rather than living in the ingestion service: the field client needs the identical contract to fail closed on its own, and a contract that exists in two places is a contract that will disagree with itself during the one incident where it matters.
+
+A reconnecting device must always be able to replay its queued deltas against the resolver and converge on the same COP state every other replica holds — including, when it has nothing valid to contribute, an honest record that it tried.
 
 ## Conclusion
 

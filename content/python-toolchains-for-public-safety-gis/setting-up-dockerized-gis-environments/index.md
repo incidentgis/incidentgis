@@ -116,7 +116,8 @@ The image is best understood as two stages joined by a single artifact boundary.
     <text x="190" y="118" font-size="10.5" fill="var(--crimson, currentColor)">compiles locked venv ← pyproject lockfile</text>
     <!-- handoff -->
     <text x="440" y="74" font-size="10.5" fill="var(--crimson, currentColor)">COPY --from=builder</text>
-    <text x="440" y="90" font-size="10">site-packages + GDAL/PROJ data</text>
+    <text x="440" y="90" font-size="10">site-packages +</text>
+    <text x="440" y="104" font-size="10">GDAL/PROJ data</text>
     <!-- Stage 2: runtime -->
     <rect x="540" y="40" width="300" height="86" rx="8" fill="var(--petal-soft, none)" stroke="var(--crimson, currentColor)" stroke-width="1.8"/>
     <text x="690" y="64" font-weight="700">Stage 2 · runtime</text>
@@ -439,6 +440,33 @@ networks:
     internal: true
 ```
 
+The pre-flight smoke test in the diagram above is doing something more specific than "check the container works", and it is worth being precise about what it asserts.
+
+<svg viewBox="0 0 880 380" role="img" aria-labelledby="pf-t pf-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="pf-t">Four assertions the pre-flight test makes, and the failure each one catches</title>
+  <desc id="pf-d">The startup pre-flight test makes four assertions before the container enters service. Asserting the GDAL version catches a base image that was rebuilt against a newer upstream. Asserting the PROJ version catches the same for the transformation library. Asserting that PROJ_LIB resolves and contains the expected grid files catches the most common containerisation failure, where the library is present but its data directory is not, so transformations silently fall back to parametric approximations. Asserting a known EPSG transform round-trips to within a millimetre catches everything the first three miss, including a corrupt grid file or a subtly different transformation pipeline selection. Only the fourth assertion tests behaviour rather than metadata, which is why it is the one that must never be skipped.</desc>
+  <rect x="0" y="0" width="880" height="380" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">what the pre-flight asserts, and what each assertion actually catches</text>
+  <rect x="40" y="72" width="800" height="62" rx="9" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <text x="60" y="96" font-size="10.5" font-weight="700" font-family="var(--font-mono)" fill="currentColor">gdal.__version__ == pinned</text>
+  <text x="60" y="118" font-size="10" fill="currentColor">catches a base image rebuilt against a newer upstream tag</text>
+  <rect x="40" y="144" width="800" height="62" rx="9" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <text x="60" y="168" font-size="10.5" font-weight="700" font-family="var(--font-mono)" fill="currentColor">pyproj.proj_version_str == pinned</text>
+  <text x="60" y="190" font-size="10" fill="currentColor">the same, for the library that actually moves the coordinates</text>
+  <rect x="40" y="216" width="800" height="62" rx="9" fill="var(--petal)" stroke="var(--crimson)" stroke-width="1.6"/>
+  <text x="60" y="240" font-size="10.5" font-weight="700" font-family="var(--font-mono)" fill="currentColor">PROJ_LIB resolves · expected grids present</text>
+  <text x="60" y="262" font-size="10" fill="currentColor">catches the classic containerisation failure: library present, data directory absent, transforms silently approximate</text>
+  <rect x="40" y="288" width="800" height="62" rx="9" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="2"/>
+  <text x="60" y="312" font-size="10.5" font-weight="700" font-family="var(--font-mono)" fill="var(--cream)">known EPSG transform round-trips to &lt; 1 mm</text>
+  <text x="60" y="334" font-size="10" fill="var(--cream)">the only assertion that tests behaviour rather than metadata — it catches a corrupt grid and a changed pipeline selection</text>
+</svg>
+
+The third assertion is the one that earns its place most often, because a missing `PROJ_LIB` is the signature failure of containerising a geospatial stack. Everything imports, every version string is correct, and `pyproj` quietly falls back to a parametric datum shift because the grid files it wanted are not on disk. The result is the 4.5-metre error described in the architecture section — inside tolerance, entirely invisible, and present on every coordinate the container produces.
+
+The fourth is the one that makes the other three optional in principle. Version strings are proxies for behaviour; a round-tripped transform is behaviour. Pick a transform whose correct answer you know to sub-millimetre precision — a published control point in the incident's own datum is ideal — and assert on the number. That single assertion catches a corrupt grid file, a grid the loader silently skipped, and a PROJ build that selects a different transformation pipeline for the same CRS pair, none of which any version comparison detects.
+
+Run it at container start and fail hard, not as a health check that reports degraded. A container that cannot transform correctly should never reach the point of accepting work, because everything it produces afterwards will look exactly like everything a working container produces.
+
 ## Configuration Reference
 
 These are the load-bearing knobs. Treat the defaults as the contract a node must satisfy before it is trusted with a field product.
@@ -454,6 +482,43 @@ These are the load-bearing knobs. Treat the defaults as the contract a node must
 | `mem_limit` / `cpus` | Compose | `2g` / `2` | Prevents a spatial job starving comms services |
 | `resolution` | `pyproject.toml` | `lowest-direct` | Reproducible, conservative dependency resolution |
 | pinned apt versions | Dockerfile | exact | No GDAL/PROJ point-release drift between nodes |
+
+The hardening flags in the Compose boundary are usually presented as a security checklist. Two of them are also correctness controls, and that is the more persuasive argument for them.
+
+<svg viewBox="0 0 880 380" role="img" aria-labelledby="hd-t hd-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="hd-t">Which container constraints protect security, and which protect reproducibility</title>
+  <desc id="hd-d">Five Compose constraints classified by what they actually protect. Dropping all Linux capabilities and setting no-new-privileges are security controls with no bearing on output. An internal-only network is both: it blocks exfiltration and it prevents PROJ from silently fetching a transformation grid over the network, which would make the container's output depend on what a remote CDN served that day. A read-only root filesystem is both: it blocks tampering and it guarantees that nothing wrote a stray grid or configuration file into the image at runtime, so the container that ran yesterday is byte-identical to the one running now. Memory and CPU limits are operational: they stop one surge job taking the host down with it. The middle two are the ones worth arguing for on reproducibility grounds, because a team that will not accept a security argument will usually accept that argument.</desc>
+  <rect x="0" y="0" width="880" height="380" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">two of these constraints decide whether the container's output is reproducible</text>
+  <text x="470" y="76" font-size="10" font-weight="700" fill="var(--muted)">security</text>
+  <text x="580" y="76" font-size="10" font-weight="700" fill="var(--muted)">reproducibility</text>
+  <text x="720" y="76" font-size="10" font-weight="700" fill="var(--muted)">availability</text>
+  <rect x="40" y="88" width="400" height="50" rx="8" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <text x="58" y="118" font-size="10.5" font-family="var(--font-mono)" fill="currentColor">cap_drop: ALL</text>
+  <circle cx="490" cy="113" r="8" fill="var(--crimson)"/>
+  <rect x="40" y="148" width="400" height="50" rx="8" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <text x="58" y="178" font-size="10.5" font-family="var(--font-mono)" fill="currentColor">no-new-privileges: true</text>
+  <circle cx="490" cy="173" r="8" fill="var(--crimson)"/>
+  <rect x="40" y="208" width="400" height="50" rx="8" fill="var(--petal)" stroke="var(--crimson)" stroke-width="1.7"/>
+  <text x="58" y="238" font-size="10.5" font-family="var(--font-mono)" fill="currentColor">internal: true</text>
+  <circle cx="490" cy="233" r="8" fill="var(--crimson)"/>
+  <circle cx="612" cy="233" r="8" fill="var(--crimson)"/>
+  <rect x="40" y="268" width="400" height="50" rx="8" fill="var(--petal)" stroke="var(--crimson)" stroke-width="1.7"/>
+  <text x="58" y="298" font-size="10.5" font-family="var(--font-mono)" fill="currentColor">read_only: true</text>
+  <circle cx="490" cy="293" r="8" fill="var(--crimson)"/>
+  <circle cx="612" cy="293" r="8" fill="var(--crimson)"/>
+  <rect x="40" y="328" width="400" height="42" rx="8" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <text x="58" y="354" font-size="10.5" font-family="var(--font-mono)" fill="currentColor">mem_limit / cpus</text>
+  <circle cx="742" cy="349" r="8" fill="var(--crimson)"/>
+  <text x="640" y="212" font-size="10" font-weight="700" fill="var(--crimson-deep)">blocks PROJ_NETWORK grid fetches</text>
+  <text x="640" y="272" font-size="10" font-weight="700" fill="var(--crimson-deep)">nothing writes a stray grid at runtime</text>
+</svg>
+
+`internal: true` is the one most often relaxed, usually so the container can reach a package mirror or an internal API, and relaxing it quietly re-enables `PROJ_NETWORK`. A PROJ build with network access will fetch a transformation grid it does not have locally, which is a genuinely useful feature and completely incompatible with reproducibility: the container's output now depends on what a remote CDN served on the day it ran, and two nodes on different network paths can legitimately produce different coordinates. If the container must have egress, set `PROJ_NETWORK=OFF` explicitly and assert it in the pre-flight rather than relying on the network being absent.
+
+`read_only: true` protects the same property from the other direction. Without it, anything that runs in the container can write a grid file, a `proj.ini`, or a `GDAL_DATA` override into the image's writable layer, and that file persists for the life of the container but not into the image — so the running container behaves differently from a fresh one started from the same digest, and nothing in the image records why.
+
+Both constraints are easier to defend on this basis than on a threat model. A team that regards a forward-deployed GIS container as a low-value target will still care that the same input produced a different coordinate on two nodes, and these two settings are what prevent it.
 
 ## Verification and Smoke Test
 

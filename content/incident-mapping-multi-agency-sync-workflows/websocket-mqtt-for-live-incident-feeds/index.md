@@ -90,7 +90,7 @@ This pattern is a transport layer; it moves already-validated geometry, it does 
 
 ## Protocol topology and message routing
 
-<svg viewBox="0 0 960 470" role="img" aria-label="Data-flow topology for the live incident feed. Three field sources — an engine tablet, an IoT sensor, and a drone — publish GeoJSON over TLS to an MQTT broker on topics shaped incident slash agency slash type slash telemetry. The Python bridge subscribes at QoS 1 with a reconnect-backoff loop on the MQTT leg, then runs three stages in order: validate against the GeoJSON schema, normalize geometry to EPSG:4326, and tap an audit log. Payloads that fail the schema branch off to a dead-letter queue and never reach a console. Validated, normalized Features fan out over WSS to three authenticated EOC consoles." xmlns="http://www.w3.org/2000/svg" style="font-family:inherit">
+<svg viewBox="6 -2 958 371" role="img" aria-label="Data-flow topology for the live incident feed. Three field sources — an engine tablet, an IoT sensor, and a drone — publish GeoJSON over TLS to an MQTT broker on topics shaped incident slash agency slash type slash telemetry. The Python bridge subscribes at QoS 1 with a reconnect-backoff loop on the MQTT leg, then runs three stages in order: validate against the GeoJSON schema, normalize geometry to EPSG:4326, and tap an audit log. Payloads that fail the schema branch off to a dead-letter queue and never reach a console. Validated, normalized Features fan out over WSS to three authenticated EOC consoles." xmlns="http://www.w3.org/2000/svg" style="font-family:inherit">
   <title>MQTT-to-WebSocket incident feed: field publishers, QoS 1 bridge with validate/normalize/audit, dead-letter branch, WSS fan-out</title>
   <desc>Field sources (engine tablet, IoT sensor, drone) publish GeoJSON over TLS to an MQTT broker on topics incident/{agency}/{type}/telemetry. The Python bridge subscribes at QoS 1 — with a reconnect-backoff loop on the MQTT leg — and runs three ordered stages: validate against the GeoJSON Feature schema, normalize geometry to EPSG:4326 precision and axis order, then tap an audit log. Payloads that fail validation branch to a dead-letter queue and are never forwarded. Validated, normalized Features fan out over WSS to authenticated EOC consoles.</desc>
   <defs>
@@ -398,6 +398,47 @@ Tune the bridge through these parameters; values are starting points for a count
 | Coordinate precision | `6` places | Position resolution / diff noise | Drop to `5` (~1 m) for very high-frequency feeds |
 | `ws_port` | `8765` | WebSocket listener | Front with a reverse proxy terminating WSS and enforcing origin checks |
 
+The subscription QoS is the row in that table with the widest consequences and the most tempting wrong answer, because "exactly once" is obviously better than "at least once" until you count the packets.
+
+<svg viewBox="0 0 880 400" role="img" aria-labelledby="qos-t qos-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="qos-t">What each MQTT quality-of-service level costs on the wire, and what it guarantees</title>
+  <desc id="qos-d">The three MQTT quality-of-service levels compared by round trips and guarantee. QoS 0 sends a single PUBLISH with no acknowledgement: one packet, no guarantee, and a message lost to a dropped link is simply gone. QoS 1 adds a PUBACK, so two packets and an at-least-once guarantee — the message will arrive, possibly more than once, which is why deduplication downstream is mandatory rather than optional. QoS 2 runs a four-packet handshake of PUBLISH, PUBREC, PUBREL and PUBCOMP for an exactly-once guarantee, at four times the packet count and two additional round trips of latency. On a congested incident link the middle option is almost always right: the extra round trips of QoS 2 cost more than the deduplication it saves, and a deduplicator is needed anyway to absorb broker failover replays.</desc>
+  <rect x="0" y="0" width="880" height="400" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">packets on the wire per message, and what each buys</text>
+  <text x="8" y="96" font-size="11" font-weight="700" fill="currentColor">QoS 0</text>
+  <text x="8" y="112" font-size="9.5" fill="var(--muted)">at most once</text>
+  <rect x="160" y="80" width="130" height="34" rx="6" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <text x="176" y="102" font-size="10.5" fill="currentColor">PUBLISH</text>
+  <text x="620" y="102" font-size="10.5" font-weight="700" fill="var(--ember-text)">no guarantee — losses are silent</text>
+  <text x="8" y="176" font-size="11" font-weight="700" fill="currentColor">QoS 1</text>
+  <text x="8" y="192" font-size="9.5" fill="var(--muted)">at least once</text>
+  <rect x="160" y="160" width="130" height="34" rx="6" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="1.3"/>
+  <text x="176" y="182" font-size="10.5" fill="var(--cream)">PUBLISH</text>
+  <rect x="300" y="160" width="130" height="34" rx="6" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="1.3"/>
+  <text x="316" y="182" font-size="10.5" fill="var(--cream)">PUBACK</text>
+  <text x="620" y="182" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">arrives — possibly twice</text>
+  <text x="8" y="256" font-size="11" font-weight="700" fill="currentColor">QoS 2</text>
+  <text x="8" y="272" font-size="9.5" fill="var(--muted)">exactly once</text>
+  <rect x="160" y="240" width="130" height="34" rx="6" fill="var(--petal)" stroke="var(--crimson-deep)" stroke-width="1.3"/>
+  <text x="176" y="262" font-size="10.5" fill="currentColor">PUBLISH</text>
+  <rect x="300" y="240" width="130" height="34" rx="6" fill="var(--petal)" stroke="var(--crimson-deep)" stroke-width="1.3"/>
+  <text x="316" y="262" font-size="10.5" fill="currentColor">PUBREC</text>
+  <rect x="440" y="240" width="130" height="34" rx="6" fill="var(--petal)" stroke="var(--crimson-deep)" stroke-width="1.3"/>
+  <text x="456" y="262" font-size="10.5" fill="currentColor">PUBREL</text>
+  <rect x="580" y="240" width="130" height="34" rx="6" fill="var(--petal)" stroke="var(--crimson-deep)" stroke-width="1.3"/>
+  <text x="596" y="262" font-size="10.5" fill="currentColor">PUBCOMP</text>
+  <text x="160" y="300" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">2 extra round trips — on a 700 ms satellite link, 1.4 s per message</text>
+  <rect x="160" y="326" width="680" height="52" rx="8" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.8"/>
+  <text x="176" y="348" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">why the default is 1</text>
+  <text x="176" y="366" font-size="10" fill="currentColor">a deduplicator is required anyway to absorb failover replays — so QoS 2 pays two round trips for a guarantee you already have</text>
+</svg>
+
+The argument against QoS 2 in this setting is not that the guarantee is worthless — it is that you are paying for it twice. Any incident pipeline that survives a broker failover already needs deduplication downstream, because a failover replays messages the broker had accepted but not confirmed as delivered, and no QoS level prevents that. Once a deduplicator exists, QoS 2's exactly-once handshake is buying a property the consumer already enforces, at the cost of two extra round trips per message on the worst link in the system.
+
+QoS 0 fails in the other direction and fails silently, which is the disqualifying property rather than the loss rate. A dropped telemetry frame at QoS 0 leaves no trace anywhere — no retry, no gap marker, no counter — so a link degrading from 1 per cent loss to 15 per cent presents as a fleet that has become quieter.
+
+Where QoS 2 does earn its round trips is command-and-control: a "release this evacuation order" or "stand down" message where a duplicate delivery has a real-world effect that no downstream deduplication can undo, because the effect is not idempotent. Split those onto their own topic tree and set QoS per subscription rather than per client, so telemetry stays cheap and commands stay exact.
+
 ## Verification and smoke-test
 
 Confirm the full path — subscribe, validate, normalize, broadcast — in a staging environment before the bridge carries live traffic. The schema gate is the highest-value assertion, since it is the line between a clean COP and a corrupted one.
@@ -447,6 +488,37 @@ mosquitto_pub -h mqtt.emergency.local -p 8883 --cafile ca.crt \
 websocat wss://localhost:8765
 # expect a Feature whose properties now include "normalized_at"
 ```
+
+The topic filter deserves the same treatment, because it is the one control in that table that operates on the right side of the bottleneck.
+
+<svg viewBox="0 0 880 380" role="img" aria-labelledby="tf-t tf-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="tf-t">Narrowing the topic filter as a load-shedding control</title>
+  <desc id="tf-d">Four topic filters against the share of a 4,200 message per second surge each one admits. The broadest filter, incident plus wildcard plus wildcard plus telemetry, takes everything at 4,200 messages a second. Restricting the type segment to perimeters takes 34 per cent, about 1,430 a second. Restricting the agency segment instead takes 22 per cent, about 920 a second. Restricting both takes 7 per cent, about 290 a second. Because the filter is evaluated by the broker, a narrowed subscription sheds load before the messages cross the link, which is the only place shedding helps on a constrained uplink — a consumer-side filter has already paid the bandwidth by the time it decides to discard.</desc>
+  <rect x="0" y="0" width="880" height="380" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">the filter is evaluated at the broker — narrowing it sheds load before the link, not after</text>
+  <text x="8" y="80" font-size="10" fill="var(--muted)">subscription</text>
+  <text x="300" y="80" font-size="10" fill="var(--muted)">share of a 4 200 msg/s surge admitted</text>
+  <rect x="300" y="100" width="340.0" height="34" rx="6" fill="var(--ember)" opacity="0.55" stroke="var(--crimson-deep)" stroke-width="1.2"/>
+  <text x="8" y="122" font-size="10.5" font-family="var(--font-mono)" fill="currentColor">incident/+/+/telemetry</text>
+  <text x="650" y="122" font-size="10" font-weight="700" fill="var(--crimson-deep)">everything · 4 200 msg/s</text>
+  <rect x="300" y="156" width="115.6" height="34" rx="6" fill="var(--petal)" stroke="var(--crimson-deep)" stroke-width="1.2"/>
+  <text x="8" y="178" font-size="10.5" font-family="var(--font-mono)" fill="currentColor">incident/+/perimeter/telemetry</text>
+  <text x="650" y="178" font-size="10" font-weight="700" fill="var(--crimson-deep)">perimeters only · 1 430/s</text>
+  <rect x="300" y="212" width="74.8" height="34" rx="6" fill="var(--petal)" stroke="var(--crimson-deep)" stroke-width="1.2"/>
+  <text x="8" y="234" font-size="10.5" font-family="var(--font-mono)" fill="currentColor">incident/CAL-FIRE/+/telemetry</text>
+  <text x="650" y="234" font-size="10" font-weight="700" fill="var(--crimson-deep)">one agency · 920/s</text>
+  <rect x="300" y="268" width="23.8" height="34" rx="6" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="1.2"/>
+  <text x="8" y="290" font-size="10.5" font-family="var(--font-mono)" fill="currentColor">incident/CAL-FIRE/perimeter/telemetry</text>
+  <text x="650" y="290" font-size="10" font-weight="700" fill="var(--crimson-deep)">one agency, one type · 290/s</text>
+  <rect x="40" y="330" width="800" height="38" rx="8" fill="var(--cream)" stroke="var(--ember)" stroke-width="1.6"/>
+  <text x="56" y="354" font-size="10.5" font-weight="700" fill="var(--ember-text)">filtering in the consumer sheds CPU, not bandwidth — the bytes have already crossed the link you were trying to protect</text>
+</svg>
+
+MQTT topic filters are evaluated by the broker, which means a narrowed subscription reduces what crosses the link. That distinction is the whole value: a consumer-side filter that discards 93 per cent of messages has already paid for all of them in bandwidth, and on a forward node whose uplink is the constraint, it has shed nothing that mattered. Moving the same predicate into the subscription string moves it to the only side where it helps.
+
+The practical consequence is that a field client's subscription should be a function of its role rather than a constant. A perimeter-tracking tablet at a division supervisor's post does not need medical or logistics telemetry, and subscribing to `incident/+/+/telemetry` because it is simple costs that tablet fourteen times the traffic it can use. Setting the filter from the assigned role at login is a small amount of plumbing that changes what the device can survive.
+
+It also gives an incident commander a real load-shedding lever during a surge. Instructing forward nodes to narrow their subscriptions is something that can be done in seconds, takes effect at the broker, and degrades the picture in a controlled and stated way — as opposed to the uncontrolled degradation that arrives when the uplink saturates and the client starts dropping whatever happens to be in flight.
 
 ## Integration with adjacent workflows
 

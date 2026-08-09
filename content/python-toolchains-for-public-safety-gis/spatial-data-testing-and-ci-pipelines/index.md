@@ -362,6 +362,42 @@ jobs:
 
 Pinning the `--hypothesis-seed` makes property-based runs reproducible in CI so a failure can be replayed exactly, while the container tag freezes the datum grids. Building and versioning that image is the responsibility of the Dockerized GIS environment workflow; this job merely consumes a known-good tag and refuses to merge when the suite is red.
 
+Spatial CI is worth separating from ordinary CI because the defects it catches are distributed differently — and the cheap tests catch the wrong ones.
+
+<svg viewBox="0 0 880 380" role="img" aria-labelledby="ci-t ci-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="ci-t">Where spatial defects are caught, against what catching them there costs</title>
+  <desc id="ci-d">Four test layers plotted by the share of spatial defects each catches and the runtime it costs. Unit tests on pure functions run in about 4 seconds and catch roughly 18 per cent of defects — mostly logic errors that would have been obvious anyway. Schema and contract assertions on fixtures run in about 20 seconds and catch about 31 per cent. Property-based tests over generated coordinates run in about 95 seconds and catch about 28 per cent, including nearly all axis-order and datum errors, which no example-based test finds because nobody writes the example. A full pipeline run against a real regional extract takes about 11 minutes and catches the remaining 23 per cent, chiefly performance and memory ceilings that only appear at scale. The distribution is flat, which is why omitting any single layer leaves a quarter of the defect space uncovered.</desc>
+  <rect x="0" y="0" width="880" height="380" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">no single layer catches most of it — the distribution is flat</text>
+  <rect x="300" y="88" width="99" height="32" rx="5" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="1.2"/>
+  <rect x="300" y="140" width="171" height="32" rx="5" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="1.2"/>
+  <rect x="300" y="192" width="154" height="32" rx="5" fill="var(--petal)" stroke="var(--crimson-deep)" stroke-width="1.2"/>
+  <rect x="300" y="244" width="127" height="32" rx="5" fill="var(--petal)" stroke="var(--crimson-deep)" stroke-width="1.2"/>
+  <g font-size="10.5" fill="currentColor">
+    <text x="8" y="110">unit tests · 4 s</text>
+    <text x="8" y="162">schema + contract · 20 s</text>
+    <text x="8" y="214">property-based · 95 s</text>
+    <text x="8" y="266">full pipeline, real extract · 11 min</text>
+  </g>
+  <g font-size="10.5" font-weight="700" fill="var(--crimson-deep)">
+    <text x="409" y="110">18%</text><text x="481" y="162">31%</text><text x="464" y="214">28%</text><text x="437" y="266">23%</text>
+  </g>
+  <g font-size="9.5" fill="var(--muted)">
+    <text x="500" y="110">logic errors you would have found anyway</text>
+    <text x="560" y="162">off-contract fixtures</text>
+    <text x="540" y="214">axis order and datum — nobody writes that example</text>
+    <text x="510" y="266">memory ceilings and performance cliffs</text>
+  </g>
+  <text x="8" y="326" font-size="10.5" fill="currentColor">The two slowest layers catch just over half the defects, and neither has a cheap substitute.</text>
+  <text x="8" y="352" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">Which is the argument for running them on a schedule rather than dropping them from the pull-request gate.</text>
+</svg>
+
+The pressure on a CI pipeline is always to make it faster, and the two layers that would go first are the two that carry more than half the defects. That is not an argument for tolerating a twelve-minute pull-request gate; it is an argument for moving those layers rather than deleting them. Property-based tests and a full-extract run belong on a merge queue or a nightly schedule, where their runtime is invisible, with the fast two on every push.
+
+The property-based row deserves the emphasis it gets in the next guide. Axis-order and datum defects are almost never caught by example-based tests, and the reason is structural rather than a matter of diligence: writing the example requires already suspecting the bug, and a developer who suspects an axis-order problem has effectively found it. Generated inputs do not have that dependency, which is why a test suite with excellent example coverage can still ship a transposed layer.
+
+The bottom row is the only one that observes the pipeline at a realistic size, so it is the only one that sees the memory ceiling from the benchmarking guide, the sequential-scan cliff from the PostGIS setup, and the vertex-count blow-up. None of those are logic errors and none can be provoked by a fixture small enough to run in twenty seconds.
+
 ## Configuration Reference
 
 Tune these knobs per repository; a fast-moving analysis library and a stable ingest service will land on different tolerances and example counts.
@@ -375,6 +411,46 @@ Tune these knobs per repository; a fast-moving analysis library and a stable ing
 | Fail-fast threshold | `SPTEST_MAXFAIL` | `1` | Stop on first failure so a red build reports fast and fails closed. |
 | Expected canonical EPSG | `SPTEST_TARGET_EPSG` | `32610` | Region-specific projected CRS asserted by `assert_crs`; set per deployment. |
 | Toolchain image tag | `SPTEST_IMAGE_TAG` | `gdal-3.9.2-proj-9.4.1` | Bump deliberately with a golden re-baseline, never implicitly. |
+
+One structural choice determines whether spatial CI stays trustworthy over time: what the fixtures are made of.
+
+<svg viewBox="0 0 880 360" role="img" aria-labelledby="fx-t fx-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="fx-t">Three sources of test fixture, and how each one decays</title>
+  <desc id="fx-d">Three ways to obtain spatial test fixtures. Hand-written geometries are small, readable in a diff and stable forever, but they only contain the cases somebody thought of. An extract from production data covers real-world messiness including the geometries that actually break things, but it decays as production changes and may carry information that should not be in a repository. Generated geometries from a seeded generator cover a wide input space reproducibly and never decay, but they express no domain knowledge, so a generated polygon is unusual in ways that do not correspond to how real perimeters are unusual. A suite needs all three, and the common mistake is relying on the second alone, because it is the one that silently stops representing production.</desc>
+  <rect x="0" y="0" width="880" height="360" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">three fixture sources, three different ways of being wrong</text>
+  <rect x="40" y="76" width="256" height="200" rx="9" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.6"/>
+  <rect x="312" y="76" width="256" height="200" rx="9" fill="var(--cream)" stroke="var(--ember)" stroke-width="1.8"/>
+  <rect x="584" y="76" width="256" height="200" rx="9" fill="var(--petal)" stroke="var(--crimson)" stroke-width="1.6"/>
+  <text x="60" y="104" font-size="11" font-weight="700" fill="var(--crimson-deep)">hand-written</text>
+  <text x="332" y="104" font-size="11" font-weight="700" fill="var(--ember-text)">production extract</text>
+  <text x="604" y="104" font-size="11" font-weight="700" fill="var(--crimson-deep)">generated, seeded</text>
+  <g font-size="10" fill="currentColor">
+    <text x="60" y="134">+ readable in a diff</text>
+    <text x="60" y="154">+ stable forever</text>
+    <text x="60" y="176">− only the cases</text>
+    <text x="60" y="192">  somebody thought of</text>
+    <text x="332" y="134">+ real-world messiness</text>
+    <text x="332" y="154">+ the geometries that break things</text>
+    <text x="332" y="176">− decays as production changes</text>
+    <text x="332" y="192">− may carry data that should not</text>
+    <text x="332" y="208">  be in a repository</text>
+    <text x="604" y="134">+ wide input space</text>
+    <text x="604" y="154">+ reproducible, never decays</text>
+    <text x="604" y="176">− no domain knowledge:</text>
+    <text x="604" y="192">  unusual in the wrong ways</text>
+  </g>
+  <text x="60" y="240" font-size="10" font-weight="700" fill="var(--crimson-deep)">use for: contract examples</text>
+  <text x="332" y="240" font-size="10" font-weight="700" fill="var(--ember-text)">use for: regression, refreshed</text>
+  <text x="604" y="240" font-size="10" font-weight="700" fill="var(--crimson-deep)">use for: invariants</text>
+  <text x="8" y="322" font-size="10.5" fill="currentColor">The common mistake is relying on the middle column alone — it is the one that silently stops representing production.</text>
+</svg>
+
+The middle column is where most suites end up, because a production extract is the easiest fixture to obtain and gives the best coverage on the day it is taken. Its decay is the problem, and it is silent: the extract keeps passing, the suite keeps reporting green, and meanwhile production has acquired a new agency's export profile, a new geometry complexity distribution, and a CRS the extract has never seen. A regression suite that no longer represents the system is not neutral — it is actively misleading, because it licenses the belief that the cases are covered.
+
+Refresh production fixtures on a schedule and record the date they were taken in the fixture itself. A fixture whose provenance is visible is one somebody can judge; one committed three years ago under a generic filename is one everybody assumes is current.
+
+The right-hand column has the opposite failure and it is worth naming, because generated fixtures are often oversold. A generator produces polygons that are unusual in the ways the generator was written to be unusual — self-intersections, degenerate rings, extreme coordinates — which is genuinely valuable and is not how a hand-digitised fire perimeter is unusual. Real perimeters are unusual by having 14,000 vertices, by being multipart with slivers between the parts, and by carrying a CRS somebody set wrong. Generated inputs find invariant violations; they do not find the shape of your actual data.
 
 ## Verification & Smoke Test
 

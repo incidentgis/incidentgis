@@ -19,14 +19,32 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+
+    {# Resolve the theme BEFORE the stylesheet paints, so a dark-mode reader
+       never gets a white flash. A stored choice wins; otherwise follow the OS.
+       Writing the attribute in both cases means CSS only has to reason about
+       an explicit [data-theme], and the prefers-color-scheme fallback in the
+       stylesheet only ever matters when JS is off. #}
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem("igis-theme");
+          var theme = stored === "dark" || stored === "light"
+            ? stored
+            : (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+          document.documentElement.setAttribute("data-theme", theme);
+        } catch (e) {}
+      })();
+    </script>
     <title>{{ _fullTitle }}</title>
     <meta name="description" content="{{ _desc }}" />
     <meta name="author" content="{{ site.author }}" />
     <meta name="robots" content="index,follow,max-image-preview:large,max-snippet:-1" />
     <meta name="googlebot" content="index,follow,max-image-preview:large,max-snippet:-1" />
     <meta name="generator" content="Eleventy" />
-    <meta name="theme-color" content="{{ site.themeColor }}" />
-    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content="{{ site.themeColor }}" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="{{ site.themeColorDark }}" media="(prefers-color-scheme: dark)" />
+    <meta name="color-scheme" content="light dark" />
     <meta name="format-detection" content="telephone=no" />
     <link rel="canonical" href="{{ _canonical }}" />
 
@@ -179,6 +197,11 @@
             <span class="site-brand__tag">Python &amp; emergency response</span>
           </span>
         </a>
+
+        <button class="theme-toggle" type="button" id="theme-toggle" aria-label="Switch to dark theme">
+          <svg class="theme-toggle__moon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 14.6A8.6 8.6 0 0 1 9.4 3.5a8.6 8.6 0 1 0 11.1 11.1Z"/></svg>
+          <svg class="theme-toggle__sun" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.4v2.4M12 19.2v2.4M4.2 4.2l1.7 1.7M18.1 18.1l1.7 1.7M2.4 12h2.4M19.2 12h2.4M4.2 19.8l1.7-1.7M18.1 5.9l1.7-1.7"/></svg>
+        </button>
 
         <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="primary-nav" aria-label="Toggle navigation">
           <span class="nav-toggle__bars"><span></span><span></span><span></span></span>

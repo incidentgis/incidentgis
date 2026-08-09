@@ -25,7 +25,8 @@ In a routine office context this is an inconvenience. In an active incident it i
   <style>
     .cadrg-box{fill:var(--cream,#fff);stroke:currentColor;stroke-width:1.5;}
     .cadrg-accent{fill:var(--petal-soft,#ffe6ea);stroke:var(--crimson,#c8102e);stroke-width:1.5;}
-    .cadrg-good{fill:#eef9f0;stroke:#1f7a3d;stroke-width:1.6;}
+    .cadrg-good{fill:var(--ok-bg,#f5fff7);stroke:var(--ok-fg,#075d2a);stroke-width:1.6;}
+    .cadrg-goodt{fill:var(--ok-fg,#075d2a);}
     .cadrg-fail{fill:var(--petal,#ffd1d8);stroke:var(--crimson,#c8102e);stroke-width:1.5;}
     .cadrg-t{fill:currentColor;font-size:13px;}
     .cadrg-sub{fill:var(--muted,#6b4549);font-size:11px;}
@@ -55,7 +56,7 @@ In a routine office context this is an inconvenience. In an active incident it i
   <text class="cadrg-sub" x="675" y="206" text-anchor="middle">always_xy=True</text>
   <!-- Stage 5: GeoJSON output (good, below) -->
   <rect class="cadrg-good" x="544" y="318" width="204" height="74" rx="8"/>
-  <text class="cadrg-t cadrg-lbl" x="646" y="344" text-anchor="middle" fill="#1f7a3d">GeoJSON FeatureCollection</text>
+  <text class="cadrg-goodt cadrg-lbl" x="646" y="344" text-anchor="middle">GeoJSON FeatureCollection</text>
   <text class="cadrg-sub" x="646" y="362" text-anchor="middle">RFC 7946, position-correct</text>
   <text class="cadrg-sub" x="646" y="378" text-anchor="middle">crs_confirmed: true + audit</text>
   <!-- Main flow arrows -->
@@ -81,6 +82,70 @@ In a routine office context this is an inconvenience. In an active incident it i
   <line x1="150" y1="412" x2="180" y2="412" stroke="var(--crimson,#c8102e)" stroke-width="1.6" stroke-dasharray="5 4"/>
   <text class="cadrg-sub" x="186" y="416">failure branch</text>
 </svg>
+
+The two mistakes are worth separating by their consequence rather than their cause, because they fail in opposite directions and only one of them is likely to be noticed.
+
+<svg viewBox="0 0 880 380" role="img" aria-labelledby="cad1-t cad1-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="cad1-t">Where a CADRG sheet lands under each of the two failure paths</title>
+  <desc id="cad1-d">A world outline with three markers showing where the same CADRG map sheet, covering a incident area near 34 degrees north and 106 degrees west, ends up under three handling paths. Read correctly through the GDAL NITF driver and reprojected to WGS 84, it lands on the incident area. Polygonized without reprojection, its vertices remain in projected metres — values in the hundreds of thousands — which a web client reads as degrees and clamps toward the antimeridian and the pole, so the sheet leaves the map entirely. Read as UTF-8 text, the projection metadata is never recovered at all and the sheet has no position to place, so it collapses to null island at zero, zero. The three outcomes look nothing alike, which is why a bounds assertion catches all of them.</desc>
+  <rect x="0" y="0" width="880" height="380" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">one sheet, three handling paths, three very different places</text>
+  <rect x="140" y="70" width="620" height="240" rx="6" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <g stroke="var(--line-strong)" stroke-width="0.9" opacity="0.65">
+    <path d="M140 190 H760"/><path d="M450 70 V310"/>
+    <path d="M295 70 V310"/><path d="M605 70 V310"/><path d="M140 130 H760"/><path d="M140 250 H760"/>
+  </g>
+  <g font-size="9.5" fill="var(--muted)">
+    <text x="146" y="186">180°W</text><text x="456" y="186">0°</text><text x="716" y="186">180°E</text>
+    <text x="456" y="84">90°N</text><text x="456" y="306">90°S</text>
+  </g>
+  <circle cx="266" cy="132" r="9" fill="var(--crimson)"/>
+  <text x="146" y="112" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">correct · 34°N 106°W</text>
+  <circle cx="450" cy="190" r="9" fill="var(--blush)" stroke="var(--ember)" stroke-width="2.6"/>
+  <text x="366" y="216" font-size="10.5" font-weight="700" fill="var(--ember-text)">null island · 0, 0</text>
+  <circle cx="752" cy="78" r="9" fill="var(--ember)"/>
+  <text x="560" y="66" font-size="10.5" font-weight="700" fill="var(--ember-text)">projected metres read as degrees</text>
+  <g font-size="10.5" fill="currentColor">
+    <text x="8" y="336">GDAL NITF driver + reproject → the incident area</text>
+    <text x="8" y="354">polygonize without reproject → off the map · read A.TOC as text → no position at all</text>
+  </g>
+</svg>
+
+Skipping the reprojection produces coordinates in the hundreds of thousands — projected metres read as degrees — which most clients clamp or discard, so the sheet visibly disappears. That is a loud failure and someone raises it within minutes. Reading `A.TOC` as text is quieter: the projection metadata is never recovered, the pipeline has no position to work with, and depending on how the downstream code handles the absence, the frames either fail to draw or land on null island. Both are recoverable. Neither is the dangerous case.
+
+The dangerous case is the one this figure cannot show, because it looks correct: a sheet whose CRS was *assumed* rather than read, landing a few hundred metres from where it belongs, over roughly the right terrain. That is why the ladder below ends in an explicit audit flag rather than a best guess — the distinguishing feature of tier four is not that it is less accurate, but that it announces itself.
+
+<svg viewBox="0 0 880 340" role="img" aria-labelledby="cad2-t cad2-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="cad2-t">The four-tier resolution ladder for an unreadable CADRG coordinate reference</title>
+  <desc id="cad2-d">Four tiers are tried in order and each has a strictly weaker guarantee than the one above it. Tier one lets the GDAL NITF and CADRG driver read the binary table of contents and returns a CRS confirmed by the driver itself. Tier two, used when the driver returns no CRS, inspects the product with gdalinfo and recovers a CRS confirmed by a human reading the product specification. Tier three converts the sheet to GeoTIFF first and vectorizes second, which preserves whatever CRS was established above while bounding memory on constrained hardware. Tier four is the safe default: when nothing can confirm a CRS, assume the product specification's nominal datum, stamp the output with a reduced-confidence audit flag, and refuse to publish it to the operating picture without review. Confidence falls at every step and the audit flag is what makes the fall visible downstream.</desc>
+  <rect x="0" y="0" width="880" height="340" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">each tier is weaker than the one above — the audit flag is what makes that visible</text>
+  <g>
+    <rect x="200" y="70" width="500" height="50" rx="8" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="1.6"/>
+    <rect x="200" y="132" width="440" height="50" rx="8" fill="var(--petal)" stroke="var(--crimson)" stroke-width="1.6"/>
+    <rect x="200" y="194" width="380" height="50" rx="8" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.6"/>
+    <rect x="200" y="256" width="320" height="50" rx="8" fill="var(--cream)" stroke="var(--ember)" stroke-width="2" stroke-dasharray="6 4"/>
+  </g>
+  <text x="216" y="92" font-size="11" font-weight="700" fill="var(--cream)">1 · GDAL NITF driver reads the binary TOC</text>
+  <text x="216" y="110" font-size="10" fill="var(--cream)">CRS confirmed by the driver</text>
+  <text x="216" y="154" font-size="11" font-weight="700" fill="var(--crimson-deep)">2 · gdalinfo, then declare it explicitly</text>
+  <text x="216" y="172" font-size="10" fill="currentColor">CRS confirmed by a human reading the spec</text>
+  <text x="216" y="216" font-size="11" font-weight="700" fill="var(--crimson-deep)">3 · convert to GeoTIFF first, vectorize second</text>
+  <text x="216" y="234" font-size="10" fill="currentColor">same CRS, bounded memory</text>
+  <text x="216" y="278" font-size="11" font-weight="700" fill="var(--crimson-deep)">4 · nominal datum + reduced-confidence flag</text>
+  <text x="216" y="296" font-size="10" fill="currentColor">not publishable without review</text>
+  <g font-size="10" fill="var(--muted)">
+    <text x="8" y="96">confirmed</text>
+    <text x="8" y="158">confirmed</text>
+    <text x="8" y="220">inherited</text>
+    <text x="8" y="282">assumed</text>
+  </g>
+  <path d="M740 70 V306" fill="none" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <path d="M740 306 l-6 -10 M740 306 l6 -10" fill="none" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <text x="756" y="180" font-size="10.5" font-weight="700" fill="var(--muted)">confidence</text>
+</svg>
+
+Read the left-hand column rather than the tier numbers. Tiers one and two both end with a CRS somebody or something actually confirmed, and are interchangeable in quality — tier two just costs a human minute. Tier three changes nothing about confidence; it is a memory strategy that inherits whatever the tiers above established. Tier four is categorically different: it is the only rung where the pipeline is guessing, and the flag it sets is what stops that guess from being indistinguishable from a confirmed answer three systems downstream.
 
 ## Tiered Resolution Strategy
 

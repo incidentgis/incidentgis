@@ -172,6 +172,100 @@ Handle recovery in ordered tiers, from the definitive fix down to a safe default
 4. **Announce presence with a Last Will and Testament.** Register a retained Last Will message so that when the client drops, the broker publishes an explicit offline status. The dashboard then shows a sensor as *offline* instead of a silent gap indistinguishable from a quiet sensor.
 5. **Fall back to a bounded safe default with audit (safe default).** After a capped number of attempts, hold at the maximum backoff and keep trying at that interval indefinitely, emitting an audit record for every attempt so the reconnection behaviour is reproducible during review.
 
+Tier one is the whole fix, and the word carrying it is *jitter* rather than *backoff*. Exponential backoff on its own does not break a reconnect storm; it schedules one.
+
+<svg viewBox="0 0 880 420" role="img" aria-labelledby="st-t st-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="st-t">Connect attempts per second after a broker restart, with and without jitter</title>
+  <desc id="st-d">Four hundred field devices reconnect after a broker restart. In the upper panel every client uses the same exponential backoff schedule with no randomisation, so all four hundred attempt at one second, then again at three, seven, fifteen and thirty-one seconds — five spikes of four hundred simultaneous connections against a broker that can accept about forty per second. Each spike knocks the broker over again, which is what makes the storm self-sustaining. In the lower panel each client draws its delay uniformly at random from the whole backoff interval, so the same four hundred attempts spread to roughly seven per second across the minute and never approach the broker's capacity. The total work is identical; only its distribution in time differs.</desc>
+  <rect x="0" y="0" width="880" height="420" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">400 devices reconnecting — the same work, distributed two ways</text>
+  <text x="8" y="76" font-size="10.5" font-weight="700" fill="var(--ember-text)">no jitter — exponential backoff alone</text>
+  <rect x="146.3" y="30.0" width="10" height="150.0" fill="var(--ember)" opacity="0.75"/>
+  <rect x="169.0" y="30.0" width="10" height="150.0" fill="var(--ember)" opacity="0.75"/>
+  <rect x="214.3" y="30.0" width="10" height="150.0" fill="var(--ember)" opacity="0.75"/>
+  <rect x="305.0" y="30.0" width="10" height="150.0" fill="var(--ember)" opacity="0.75"/>
+  <rect x="486.3" y="30.0" width="10" height="150.0" fill="var(--ember)" opacity="0.75"/>
+  <path d="M140 180 H820" fill="none" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <path d="M140 165 H820" fill="none" stroke="var(--crimson-deep)" stroke-width="1.4" stroke-dasharray="5 4"/>
+  <text x="640" y="160" font-size="10" font-weight="700" fill="var(--crimson-deep)">broker capacity ≈ 40/s</text>
+  <text x="8" y="256" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">full jitter — delay drawn uniformly from the interval</text>
+  <rect x="141.7" y="357.0" width="8" height="3.0" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="153.0" y="356.0" width="8" height="4.0" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="164.3" y="357.3" width="8" height="2.7" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="175.7" y="358.0" width="8" height="2.0" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="187.0" y="356.5" width="8" height="3.5" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="198.3" y="356.2" width="8" height="3.8" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="209.7" y="357.7" width="8" height="2.3" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="221.0" y="357.6" width="8" height="2.4" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="232.3" y="356.1" width="8" height="3.9" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="243.7" y="356.6" width="8" height="3.4" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="255.0" y="358.0" width="8" height="2.0" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="266.3" y="357.2" width="8" height="2.8" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="277.7" y="356.0" width="8" height="4.0" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="289.0" y="357.1" width="8" height="2.9" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="300.3" y="358.0" width="8" height="2.0" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="311.7" y="356.6" width="8" height="3.4" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="323.0" y="356.1" width="8" height="3.9" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="334.3" y="357.6" width="8" height="2.4" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="345.7" y="357.8" width="8" height="2.2" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="357.0" y="356.2" width="8" height="3.8" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="368.3" y="356.4" width="8" height="3.6" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="379.7" y="358.0" width="8" height="2.0" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="391.0" y="357.3" width="8" height="2.7" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="402.3" y="356.0" width="8" height="4.0" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="413.7" y="357.0" width="8" height="3.0" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="425.0" y="358.0" width="8" height="2.0" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="436.3" y="356.8" width="8" height="3.2" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="447.7" y="356.0" width="8" height="4.0" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="459.0" y="357.5" width="8" height="2.5" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="470.3" y="357.9" width="8" height="2.1" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="481.7" y="356.3" width="8" height="3.7" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="493.0" y="356.3" width="8" height="3.7" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="504.3" y="357.9" width="8" height="2.1" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="515.7" y="357.5" width="8" height="2.5" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="527.0" y="356.0" width="8" height="4.0" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="538.3" y="356.8" width="8" height="3.2" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="549.7" y="358.0" width="8" height="2.0" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="561.0" y="356.9" width="8" height="3.1" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="572.3" y="356.0" width="8" height="4.0" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="583.7" y="357.3" width="8" height="2.7" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="595.0" y="357.9" width="8" height="2.1" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="606.3" y="356.4" width="8" height="3.6" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="617.7" y="356.2" width="8" height="3.8" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="629.0" y="357.8" width="8" height="2.2" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="640.3" y="357.6" width="8" height="2.4" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="651.7" y="356.1" width="8" height="3.9" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="663.0" y="356.7" width="8" height="3.3" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="674.3" y="358.0" width="8" height="2.0" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="685.7" y="357.1" width="8" height="2.9" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="697.0" y="356.0" width="8" height="4.0" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="708.3" y="357.2" width="8" height="2.8" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="719.7" y="358.0" width="8" height="2.0" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="731.0" y="356.6" width="8" height="3.4" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="742.3" y="356.1" width="8" height="3.9" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="753.7" y="357.7" width="8" height="2.3" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="765.0" y="357.7" width="8" height="2.3" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="776.3" y="356.1" width="8" height="3.9" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="787.7" y="356.5" width="8" height="3.5" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="799.0" y="358.0" width="8" height="2.0" fill="var(--crimson)" opacity="0.85"/>
+  <rect x="810.3" y="357.2" width="8" height="2.8" fill="var(--crimson)" opacity="0.85"/>
+  <path d="M140 360 H820" fill="none" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <path d="M140 345 H820" fill="none" stroke="var(--crimson-deep)" stroke-width="1.4" stroke-dasharray="5 4"/>
+  <text x="640" y="340" font-size="10" font-weight="700" fill="var(--crimson-deep)">broker capacity ≈ 40/s</text>
+  <g font-size="10" text-anchor="middle" fill="var(--muted)">
+    <text x="140" y="380">0 s</text><text x="253" y="380">10</text><text x="367" y="380">20</text>
+    <text x="480" y="380">30</text><text x="593" y="380">40</text><text x="707" y="380">50</text><text x="820" y="380">60 s</text>
+  </g>
+  <text x="8" y="196" font-size="10" fill="var(--muted)">400 at once, five times</text>
+  <text x="8" y="404" font-size="10.5" fill="currentColor">Backoff alone changes when the herd arrives; jitter is what stops it being a herd.</text>
+</svg>
+
+The upper panel is what a correct-looking implementation produces. Every client doubles its delay exactly as the textbook says, and because they all disconnected at the same instant — the broker restarted — they all wake at the same instant too. The broker sees four hundred connection attempts against a capacity of roughly forty per second, sheds the excess, and the clients that were shed go back to a backoff schedule they are still sharing. The storm regenerates itself, and it does so with progressively longer gaps that look, from the broker's logs, like recovery.
+
+Drawing the delay uniformly from `[0, interval]` rather than using the interval itself costs one line and changes the distribution completely. The same four hundred reconnections still happen and the same total work still gets done; it arrives at about seven per second instead of four hundred at once, comfortably inside capacity, and the fleet is fully reconnected sooner than the un-jittered one manages its second spike.
+
+Two implementation notes that matter more than they look. Draw the random value per attempt rather than once per client — a client that draws a single offset and keeps it is still in lockstep with itself. And seed from something device-specific, because a fleet of identically-imaged tablets that seeded from a fixed value at boot will draw the same sequence and reconstitute the herd exactly.
+
 ## Production Python Implementation
 
 The manager below carries the full resolution path on top of `paho-mqtt`: full-jitter exponential backoff, a client-side connect rate limiter, persistent-session and Last Will configuration, structured logging, explicit exception handling, and an immutable audit record per reconnect attempt. Backoff bounds and the rate limit are parameters, not literals, so an agency can tune them per fleet size and commit them alongside the rest of the [live incident feed configuration](https://www.incidentgis.com/incident-mapping-multi-agency-sync-workflows/websocket-mqtt-for-live-incident-feeds/). Senior-engineer assumptions apply: `paho-mqtt` is installed, TLS material is provisioned out of band, and the same broker enforces the deduplication contract described in [Deduplicating Replayed Incident Messages After Broker Failover](https://www.incidentgis.com/incident-mapping-multi-agency-sync-workflows/websocket-mqtt-for-live-incident-feeds/deduplicating-replayed-incident-messages-after-broker-failover/).
@@ -347,6 +441,51 @@ class ResilientMQTTClient:
 ```
 
 The `audit_log` is the load-bearing output. Persisting it as a committed, content-hashed artifact lets a reviewer replay the recovery and confirm that reconnects were spread and rate-limited rather than dumped on the broker in one burst — and it pairs with the broker-side deduplication that keeps the redelivered backlog from double-counting once every client is back online.
+
+Tier three is easy to skip because it appears to be about efficiency and is actually about correctness.
+
+<svg viewBox="0 0 880 360" role="img" aria-labelledby="cs2-t cs2-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="cs2-t">What a device misses across a 90-second outage under each session setting</title>
+  <desc id="cs2-d">A device is disconnected for ninety seconds while eleven QoS 1 messages are published to its topic. With clean_session set to true the broker discards the subscription the moment the socket drops, so all eleven messages are lost and the device resubscribes to a topic whose recent history it can never recover. With clean_session set to false the broker holds the session and queues the messages, so all eleven are delivered on reconnect, in order. The setting therefore decides whether a reconnect is a recovery or a gap, and under a reconnect storm — where outages are measured in minutes, not seconds — it decides whether the fleet's picture converges at all.</desc>
+  <rect x="0" y="0" width="880" height="360" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">11 QoS 1 messages published during a 90-second outage</text>
+  <path d="M240 82 H700 V300 H240 Z" fill="var(--ember)" opacity="0.14"/>
+  <text x="250" y="76" font-size="10" font-weight="700" fill="var(--ember-text)">disconnected</text>
+  <text x="8" y="126" font-size="10.5" font-weight="700" fill="currentColor">clean_session = True</text>
+  <text x="8" y="142" font-size="9.5" fill="var(--muted)">subscription discarded</text>
+  <path d="M120 130 H820" fill="none" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <path d="M120 250 H820" fill="none" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <text x="8" y="246" font-size="10.5" font-weight="700" fill="currentColor">clean_session = False</text>
+  <text x="8" y="262" font-size="9.5" fill="var(--muted)">session held, messages queued</text>
+  <g fill="var(--ember)" opacity="0.5">
+    <circle cx="272" cy="130" r="6"/><circle cx="312" cy="130" r="6"/><circle cx="352" cy="130" r="6"/>
+    <circle cx="396" cy="130" r="6"/><circle cx="440" cy="130" r="6"/><circle cx="484" cy="130" r="6"/>
+    <circle cx="524" cy="130" r="6"/><circle cx="568" cy="130" r="6"/><circle cx="612" cy="130" r="6"/>
+    <circle cx="652" cy="130" r="6"/><circle cx="688" cy="130" r="6"/>
+  </g>
+  <text x="360" y="170" font-size="11" font-weight="700" fill="var(--ember-text)">all 11 dropped by the broker — unrecoverable</text>
+  <g fill="var(--crimson)">
+    <circle cx="272" cy="250" r="6"/><circle cx="312" cy="250" r="6"/><circle cx="352" cy="250" r="6"/>
+    <circle cx="396" cy="250" r="6"/><circle cx="440" cy="250" r="6"/><circle cx="484" cy="250" r="6"/>
+    <circle cx="524" cy="250" r="6"/><circle cx="568" cy="250" r="6"/><circle cx="612" cy="250" r="6"/>
+    <circle cx="652" cy="250" r="6"/><circle cx="688" cy="250" r="6"/>
+  </g>
+  <path d="M700 250 H770" fill="none" stroke="var(--crimson)" stroke-width="2.4"/>
+  <path d="M770 250 l-9 -5 M770 250 l-9 5" fill="none" stroke="var(--crimson)" stroke-width="2.4"/>
+  <text x="470" y="290" font-size="11" font-weight="700" fill="var(--crimson-deep)">all 11 delivered on reconnect, in order</text>
+  <g font-size="10" text-anchor="middle" fill="var(--muted)">
+    <text x="120" y="322">0 s</text><text x="240" y="322">30</text><text x="470" y="322">75</text><text x="700" y="322">120</text><text x="820" y="322">150 s</text>
+  </g>
+  <text x="8" y="350" font-size="10.5" fill="currentColor">The setting decides whether a reconnect is a recovery or a permanent gap in that device's picture.</text>
+</svg>
+
+`clean_session=True` is the default in a lot of client libraries and it is the right default for a monitoring dashboard that only cares about now. It is the wrong one for a field device, because it makes the broker discard the subscription at the instant the socket drops — which is precisely the instant the device most needs its messages held. The device reconnects, resubscribes, and receives whatever is published *next*, with no indication that eleven messages passed while it was away.
+
+That gap is invisible in exactly the way this section keeps returning to. The device is connected, the topic is live, messages are flowing, and its picture is missing a perimeter update from ninety seconds ago. Nothing in the client's state says so.
+
+The pairing with QoS 1 is not optional. A persistent session with QoS 0 subscriptions still discards queued messages, because QoS 0 carries no delivery guarantee for the broker to honour — the session is preserved and the queue is not. Both settings have to be right, and the smoke test for it is worth writing explicitly: disconnect a subscriber, publish, reconnect, and assert the count. It is a ten-line test that catches a misconfiguration no amount of connected-state monitoring will reveal.
+
+One cost to plan for: persistent sessions consume broker memory per offline client, and a fleet of four hundred devices offline for an hour is a queue the broker has to hold. Set a message-expiry interval so a device that has been gone for a full operational period does not receive a thousand stale positions on reconnect — the goal is to close the gap, not to replay history.
 
 ## Validation Checklist
 

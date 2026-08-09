@@ -90,7 +90,7 @@ In an office system a duplicate row is an inconvenience you fix at month-end. In
     <path d="M426,224 H560 V153 H626" fill="none" stroke="currentColor" stroke-width="1.4" marker-end="url(#dedup-arrow-dim)"/>
     <path d="M426,236 H540 V231 H626" fill="none" stroke="currentColor" stroke-width="1.4" marker-end="url(#dedup-arrow-dim)"/>
     <!-- lanes to audit sink -->
-    <path d="M732,106 V320 H734 V342" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="4 4" opacity="0.85" marker-end="url(#dedup-arrow-dim)"/>
+    <path d="M836,90 H872 V330 H760 V342" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="4 4" opacity="0.85" marker-end="url(#dedup-arrow-dim)"/>
     <path d="M540,262 V342" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="4 4" opacity="0.85" marker-end="url(#dedup-arrow-dim)"/>
     <path d="M337,264 V330 H440 V342" fill="none" stroke="currentColor" stroke-width="1.2" stroke-dasharray="4 4" opacity="0.85" marker-end="url(#dedup-arrow-dim)"/>
   </g>
@@ -232,6 +232,33 @@ def resolve_duplicate_incidents(
 
 Persist `master_id`, `dedup_state`, and `dedup_score` straight to the audit store; they are the chain-of-custody record that lets a reviewer reconstruct why two records became one. Never overwrite the source IDs in place — masters and merged records must both survive so a mistaken merge is reversible. The same scoring philosophy underpins [automated attribute validation rules](https://www.incidentgis.com/incident-mapping-multi-agency-sync-workflows/automated-attribute-validation-rules/): normalize the incident-type codes there before they reach the attribute axis here, or the fuzzy fallback will carry the whole decision.
 
+The three weights are not free parameters — each one degrades differently as the incident changes, and knowing which is about to become unreliable is most of the skill in tuning them.
+
+<svg viewBox="0 0 880 380" role="img" aria-labelledby="wt-t wt-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="wt-t">When each scoring component stops being trustworthy</title>
+  <desc id="wt-d">The three components of the composite duplicate score, with the conditions that degrade each. Spatial proximity, weighted 0.5, is reliable until reports come from GPS in an urban canyon or from a milepost reference, at which point positions from the same incident can differ by hundreds of metres. Temporal overlap, weighted 0.3, is reliable until dispatch queues back up during a surge, when two reports of one event can be timestamped twenty minutes apart. Attribute similarity, weighted 0.2, is reliable until a mutual-aid partner joins using a different incident-type vocabulary, at which point the same event carries unrelated type codes. Crucially the degradations are not simultaneous: an urban surge breaks spatial and temporal together while leaving attributes intact, which is exactly when a fixed weighting is most wrong.</desc>
+  <rect x="0" y="0" width="880" height="380" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">each component fails under different conditions — and rarely at the same time</text>
+  <rect x="40" y="76" width="800" height="86" rx="9" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.6"/>
+  <text x="60" y="102" font-size="11" font-weight="700" fill="var(--crimson-deep)">spatial proximity · weight 0.5</text>
+  <text x="60" y="124" font-size="10" fill="currentColor">degrades with: urban-canyon GPS multipath · milepost-derived positions · a cell-sector centroid</text>
+  <text x="60" y="146" font-size="10" fill="currentColor">two reports of one incident can then sit 300 m apart, scoring as distinct</text>
+  <rect x="40" y="174" width="800" height="86" rx="9" fill="var(--petal)" stroke="var(--crimson)" stroke-width="1.6"/>
+  <text x="60" y="200" font-size="11" font-weight="700" fill="currentColor">temporal overlap · weight 0.3</text>
+  <text x="60" y="222" font-size="10" fill="currentColor">degrades with: dispatch queue backlog during surge · a partner CAD bridge batching its pushes</text>
+  <text x="60" y="244" font-size="10" fill="currentColor">two reports of one event can then be timestamped 20 minutes apart</text>
+  <rect x="40" y="272" width="800" height="86" rx="9" fill="var(--cream)" stroke="var(--ember)" stroke-width="1.8"/>
+  <text x="60" y="298" font-size="11" font-weight="700" fill="var(--ember-text)">attribute similarity · weight 0.2</text>
+  <text x="60" y="320" font-size="10" fill="currentColor">degrades with: a mutual-aid partner using a different incident-type vocabulary</text>
+  <text x="60" y="342" font-size="10" fill="currentColor">the same event then carries type codes with no lexical relationship at all</text>
+</svg>
+
+The interaction is what makes a fixed weighting fragile. An urban surge degrades spatial and temporal *together* — multipath from the buildings, backlog from the volume — while leaving attributes untouched, so the 0.8 of the score that has become unreliable outvotes the 0.2 that has not. A mutual-aid influx does the reverse: positions and times stay good and the vocabulary diverges, so a weighting that leans on attributes starts splitting genuine duplicates.
+
+Two responses are worth more than re-tuning the constants. The first is to make each component report its own confidence alongside its score, and to renormalise the weights across the components that are currently trustworthy rather than applying fixed ones. A spatial component that knows its inputs are cell-sector centroids can say so, and the composite can lean on time and attributes instead.
+
+The second is to widen the review band rather than move the auto-merge threshold when conditions degrade. Sending more pairs to a human is a visible, reversible cost; lowering the merge threshold to compensate for noisy inputs is an invisible, irreversible one — it merges incidents that were never the same event, and the audit record will faithfully report a confident score for each.
+
 ## Validation Checklist
 
 Confirm each item before a deduplication build is cleared for field deployment:
@@ -243,6 +270,41 @@ Confirm each item before a deduplication build is cleared for field deployment:
 - [ ] Records in the `review` band route to a human queue and are excluded from auto-merge resource counts until cleared.
 - [ ] Source records are never overwritten in place — both master and merged rows survive so any merge is reversible.
 - [ ] Dispatch timestamps are normalized to a single timezone/UTC before windowing, so NTP skew between agency clocks is bounded by `time_window_min`, not by timezone offset.
+
+Setting the two thresholds is a choice about which error you would rather make, and the two errors are not symmetric.
+
+<svg viewBox="0 0 880 360" role="img" aria-labelledby="th-t th-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="th-t">The operational cost of each error, and why the two thresholds are set differently</title>
+  <desc id="th-d">Two errors are possible. A false merge combines two genuinely distinct incidents into one record: one of them disappears from the resource count, no unit is assigned to it, and because the surviving record looks complete nothing signals the loss — recovery requires someone to notice an incident that is not on the board. A false split leaves one incident as two records: it is double-counted in the resource tally, two units may be assigned where one was needed, and it is discovered within minutes by the second unit arriving on scene. Both are errors; only one of them removes an incident from the response. This asymmetry is why the auto-merge threshold sits high, the review band is wide, and the default when confidence is low is to keep both records.</desc>
+  <rect x="0" y="0" width="880" height="360" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">both are errors — only one of them removes an incident from the response</text>
+  <rect x="40" y="76" width="390" height="200" rx="9" fill="var(--cream)" stroke="var(--ember)" stroke-width="2"/>
+  <rect x="460" y="76" width="380" height="200" rx="9" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.8"/>
+  <text x="60" y="104" font-size="11.5" font-weight="700" fill="var(--ember-text)">false merge — two incidents become one</text>
+  <text x="480" y="104" font-size="11.5" font-weight="700" fill="var(--crimson-deep)">false split — one incident stays two</text>
+  <g font-size="10.5" fill="currentColor">
+    <text x="60" y="136">· one incident leaves the resource count</text>
+    <text x="60" y="158">· no unit is assigned to it</text>
+    <text x="60" y="180">· the surviving record looks complete</text>
+    <text x="60" y="202">· nothing signals the loss</text>
+    <text x="480" y="136">· the incident is double-counted</text>
+    <text x="480" y="158">· two units may be assigned</text>
+    <text x="480" y="180">· both records are present and visible</text>
+    <text x="480" y="202">· the second unit on scene reports it</text>
+  </g>
+  <text x="60" y="240" font-size="10.5" font-weight="700" fill="var(--ember-text)">discovered when somebody notices an absence</text>
+  <text x="60" y="258" font-size="10" fill="currentColor">which during a surge may be never</text>
+  <text x="480" y="240" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">discovered in minutes, on scene</text>
+  <text x="480" y="258" font-size="10" fill="currentColor">costs one wasted response</text>
+  <rect x="40" y="298" width="800" height="46" rx="9" fill="var(--petal)" stroke="var(--crimson)" stroke-width="1.6"/>
+  <text x="60" y="326" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">so: merge threshold high, review band wide, and when confidence is low keep both records</text>
+</svg>
+
+The asymmetry is the whole justification for a 0.85 auto-merge threshold that will obviously leave real duplicates unmerged. Those duplicates land in the review queue, where a human clears them in seconds, and in the meantime the worst outcome is a resource tally that is slightly overstated — a condition an operations chief is well equipped to reason about, because it is visible.
+
+A false merge is not visible. The record that survives carries a plausible location, a plausible type and a master identifier; the record that vanished leaves no trace on any board. Discovering it requires somebody to notice that a call which came in forty minutes ago has no unit assigned, which is precisely the kind of attention a surge does not have spare.
+
+This also settles a question that comes up when the review queue grows: whether to raise the auto-merge rate to reduce reviewer load. The answer is no — the correct lever is more reviewers or better upstream normalisation, because trading queue depth for silent merges converts a visible, bounded cost into an invisible, unbounded one.
 
 ## Edge Cases and Gotchas
 

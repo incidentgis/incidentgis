@@ -90,7 +90,7 @@ This pattern is the entry point of the spatial pipeline; it produces clean geome
 
 The flow is strictly staged so that a malformed input fails early and visibly instead of producing a plausible-but-wrong point: parse, normalize, resolve, validate, hash. Each stage is stateless and can be scaled horizontally behind the ingestion queue.
 
-<svg viewBox="0 0 980 360" role="img" aria-label="Horizontal data-flow diagram of the real-time geocoding pipeline. A raw MQTT or WebSocket dispatch payload enters a Parse stage that runs a coordinate regex and address extraction. Output flows to Normalize, which canonicalises USPS-style directional and suffix tokens. Normalized text reaches a tiered Geocode stage: high-priority dispatches resolve synchronously while lower-priority reports enter an async worker pool, both wrapped in exponential backoff against the authoritative locator. Resolved coordinates flow to Validate, which enforces WGS84 bounds and a null-island guard. Valid points flow to Hash, which emits a deterministic dedup key, and on to the Common Operating Picture and spatial enrichment. A reject and fallback branch off Validate loops failures to an immutable audit log, which feeds unresolved records back to the address-fallback path at Normalize." xmlns="http://www.w3.org/2000/svg" style="font-family:inherit">
+<svg viewBox="-2 74 986 268" role="img" aria-label="Horizontal data-flow diagram of the real-time geocoding pipeline. A raw MQTT or WebSocket dispatch payload enters a Parse stage that runs a coordinate regex and address extraction. Output flows to Normalize, which canonicalises USPS-style directional and suffix tokens. Normalized text reaches a tiered Geocode stage: high-priority dispatches resolve synchronously while lower-priority reports enter an async worker pool, both wrapped in exponential backoff against the authoritative locator. Resolved coordinates flow to Validate, which enforces WGS84 bounds and a null-island guard. Valid points flow to Hash, which emits a deterministic dedup key, and on to the Common Operating Picture and spatial enrichment. A reject and fallback branch off Validate loops failures to an immutable audit log, which feeds unresolved records back to the address-fallback path at Normalize." xmlns="http://www.w3.org/2000/svg" style="font-family:inherit">
   <title>Real-time geocoding pipeline: parse, normalize, geocode, validate, hash</title>
   <desc>A raw MQTT/WebSocket dispatch payload streams through five strictly staged steps. Parse extracts coordinate pairs and address tokens. Normalize collapses directional and suffix tokens to a canonical USPS-aligned form. Geocode is tiered — high-priority dispatches resolve synchronously and the rest enter an async worker pool, both with exponential backoff against the authoritative locator. Validate enforces WGS84 bounds and rejects the null-island sentinel (0,0); rejected records fall back to an immutable audit log, which re-feeds the address path at Normalize. Valid points pass to Hash, which emits a deterministic dedup and conflict key, and on to the Common Operating Picture and spatial enrichment.</desc>
   <defs>
@@ -301,6 +301,46 @@ async def resolve_address(address: str, session: aiohttp.ClientSession) -> dict:
         raise GeocodingError("network unreachable") from exc
 ```
 
+What the backoff schedule buys is a bounded worst case rather than a better success rate. Laid out on a timeline, the shape of the guarantee is easier to see than it is to read off the parameter table.
+
+<svg viewBox="0 0 880 320" role="img" aria-labelledby="bk-title bk-desc" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="bk-title">Three geocoder attempts with jittered exponential backoff, then the address fallback</title>
+  <desc id="bk-desc">A fourteen-second timeline of one incident being geocoded. Attempt one runs for two seconds and fails. The client waits one second plus jitter and runs attempt two, which also fails after two seconds. It waits two seconds plus jitter and runs attempt three, which fails as well. Having exhausted GEO_RETRY_ATTEMPTS, the pipeline drops to the address-fallback path, which resolves against the road-segment centroid in under a second and commits the record tagged with locator_source equal to fallback and requires_review set true. The backoff ceiling caps how long each wait can grow, not how many attempts are made, so the worst-case latency is bounded and the record is never simply dropped.</desc>
+  <rect x="0" y="0" width="880" height="320" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">GEO_RETRY_ATTEMPTS = 3 · jittered exponential backoff · GEO_BACKOFF_MAX caps the wait, not the count</text>
+  <g font-size="10.5" fill="currentColor">
+    <text x="120" y="112">attempt 1</text><text x="290" y="112">attempt 2</text>
+    <text x="525" y="112">attempt 3</text><text x="645" y="112">fallback</text>
+  </g>
+  <g stroke-width="1.6">
+    <rect x="120" y="123" width="100" height="34" rx="6" fill="var(--ember)" opacity="0.5" stroke="var(--ember)"/>
+    <rect x="290" y="123" width="100" height="34" rx="6" fill="var(--ember)" opacity="0.5" stroke="var(--ember)"/>
+    <rect x="525" y="123" width="100" height="34" rx="6" fill="var(--ember)" opacity="0.5" stroke="var(--ember)"/>
+    <rect x="645" y="123" width="27" height="34" rx="6" fill="var(--petal-soft)" stroke="var(--crimson)"/>
+  </g>
+  <text x="700" y="136" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">committed with</text>
+  <text x="700" y="152" font-size="10.5" fill="currentColor">locator_source = fallback</text>
+  <g fill="none" stroke="var(--line-strong)" stroke-width="1.3" stroke-dasharray="4 4">
+    <path d="M220 168 V184 H290 V168"/>
+    <path d="M390 168 V184 H525 V168"/>
+  </g>
+  <g font-size="10" text-anchor="middle" fill="var(--muted)">
+    <text x="255" y="198">1.0 s + jitter</text>
+    <text x="457" y="198">2.0 s + jitter</text>
+  </g>
+  <path d="M120 214 H820" fill="none" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <g font-size="10" text-anchor="middle" fill="var(--muted)">
+    <text x="120" y="234">0 s</text><text x="220" y="234">2</text><text x="320" y="234">4</text><text x="420" y="234">6</text>
+    <text x="520" y="234">8</text><text x="620" y="234">10</text><text x="720" y="234">12</text><text x="820" y="234">14 s</text>
+    <text x="470" y="256" font-size="11">elapsed since the incident entered the queue</text>
+  </g>
+  <text x="440" y="296" font-size="11" text-anchor="middle" fill="var(--muted)">The record is never dropped — it is downgraded, tagged, and made someone's explicit problem.</text>
+</svg>
+
+Two properties of that schedule are worth defending against the pressure to "just retry harder". The first is the jitter. Without it, every incident that hits a degraded locator retries on exactly the same schedule, so a locator recovering from an outage receives its entire backlog as three synchronised thundering herds and fails again — the retry policy becomes the outage's own extension mechanism. The second is that `GEO_BACKOFF_MAX` bounds the *wait*, not the attempt count. Raising the ceiling makes a struggling locator's failures slower to detect without making them less likely, which is close to the worst combination during a surge.
+
+The path that matters most is the last one. A record whose geocoding failed is not dropped and does not block; it is resolved to the centroid of its road segment, committed with `locator_source = fallback` and `requires_review = true`, and made visible as a lower-confidence position. That is a deliberate choice to prefer a known-approximate location over no location, on the reasoning that an incident marker with a review flag gets a unit dispatched to roughly the right place while an absent marker gets nothing dispatched at all.
+
 ### 4. Hash for deduplication and audit
 
 A deterministic hash over rounded coordinates gives every resolved location a stable key for deduplication, conflict detection, and the immutable audit trail. Rounding to six decimal places (~11 cm) prevents floating-point jitter from minting a new key for the same point on every re-ingest.
@@ -328,6 +368,49 @@ These knobs govern throughput, accuracy, and how aggressively the pipeline retri
 | Sync priority threshold | `GEO_SYNC_PRIORITY` | `1` | ICS priority at or below which geocoding runs synchronously. |
 | Ingestion CRS | `GEO_INGEST_CRS` | `EPSG:4326` | Assumed CRS for payloads with no declared reference. |
 | Locator base URL | `GEO_LOCATOR_URL` | — | Authoritative Pelias/Esri/state-portal endpoint. |
+
+`GEO_HASH_PRECISION` looks like an accuracy setting and behaves like a merge policy, which is why its default is the parameter most often left wrong. Six decimal places is roughly eleven centimetres — a cell far finer than the position it is hashing.
+
+<svg viewBox="0 0 880 360" role="img" aria-labelledby="prec-title prec-desc" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="prec-title">Deduplication hash cell size at each rounding precision, against the accuracy of the fixes being hashed</title>
+  <desc id="prec-desc">A logarithmic scale from one centimetre to one kilometre. Rounding coordinates to six decimal places produces a cell about 0.11 metres across, five places about 1.1 metres, four places about 11 metres and three places about 111 metres. Plotted against the same scale are the accuracies of the fixes being hashed: real-time kinematic GNSS at about two centimetres, WAAS-corrected GPS at about three metres, consumer GPS at about five metres and an urban canyon fix at about twenty-five metres. Where the cell is smaller than the accuracy of the fix, two readings of the same physical location fall into different cells and can never be merged, so the default of six decimal places de-duplicates nothing at all for any device other than a survey-grade receiver.</desc>
+  <rect x="0" y="0" width="880" height="360" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">GEO_HASH_PRECISION — cell size against the accuracy of the fix being hashed</text>
+  <g>
+    <rect x="200" y="90" width="129.6" height="26" rx="5" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="1.2"/>
+    <rect x="200" y="130" width="253.6" height="26" rx="5" fill="var(--petal)" stroke="var(--line-strong)" stroke-width="1.2"/>
+    <rect x="200" y="170" width="377.6" height="26" rx="5" fill="var(--petal)" stroke="var(--line-strong)" stroke-width="1.2"/>
+    <rect x="200" y="210" width="501.6" height="26" rx="5" fill="var(--petal)" stroke="var(--line-strong)" stroke-width="1.2"/>
+  </g>
+  <g font-size="10.5" fill="currentColor">
+    <text x="8" y="108">6 dp · 0.11 m</text>
+    <text x="8" y="148">5 dp · 1.1 m</text>
+    <text x="8" y="188">4 dp · 11 m</text>
+    <text x="8" y="228">3 dp · 111 m</text>
+  </g>
+  <text x="8" y="76" font-size="9.5" fill="var(--muted)">default</text>
+  <path d="M200 252 H820" fill="none" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <g stroke="var(--crimson-deep)" stroke-width="1.6">
+    <path d="M237.3 246 V258"/><path d="M507.1 246 V258"/><path d="M534.7 246 V258"/><path d="M621.4 246 V258"/>
+  </g>
+  <g font-size="10" text-anchor="middle" fill="var(--muted)">
+    <text x="200" y="272">0.01 m</text><text x="324" y="272">0.1</text><text x="448" y="272">1</text>
+    <text x="572" y="272">10</text><text x="696" y="272">100</text><text x="820" y="272">1000 m</text>
+  </g>
+  <g font-size="10.5" font-weight="700" fill="var(--crimson-deep)">
+    <text x="200" y="296">RTK ±0.02 m</text>
+    <text x="470" y="296">WAAS ±3 m</text>
+    <text x="600" y="296">urban canyon ±25 m</text>
+    <text x="470" y="314">consumer GPS ±5 m</text>
+  </g>
+  <text x="440" y="344" font-size="11" text-anchor="middle" fill="var(--muted)">A cell finer than the fix's own accuracy cannot merge two readings of one place.</text>
+</svg>
+
+Read against the accuracy of real fixes, the default de-duplicates almost nothing. Two reports of the same doorway from two consumer handsets will differ by several metres, land in different eleven-centimetre cells, produce different hashes, and both commit as distinct incidents. The dedup layer is running, is consuming CPU, is emitting audit records, and is catching only exact byte-for-byte replays — which the ingestion boundary already caught upstream.
+
+Choosing the value is a matter of matching the cell to the worst fix you accept, not the best. A response fed by consumer handsets and vehicle GPS wants four decimal places, whose eleven-metre cell sits comfortably outside the five-metre accuracy band and merges genuine re-reports of one location. Three places is right where urban-canyon multipath dominates, at the cost of merging genuinely distinct incidents on opposite sides of a large intersection — a trade worth taking for structure fires and refusing for individual medical calls. Six places is correct only for survey-grade receivers, where it is exactly right.
+
+The safe way to change it is to run both precisions in shadow for an operational period and compare the merge counts before switching, because the failure mode of an over-coarse hash is silent and the wrong direction: it does not raise errors, it quietly collapses two incidents into one.
 
 ## Verification and Smoke Test
 

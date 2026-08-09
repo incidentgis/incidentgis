@@ -1,3 +1,39 @@
+/* Theme toggle.
+   The inline <head> script has already put an explicit data-theme on <html>,
+   so this only has to flip it, persist the choice, and keep the control's
+   accessible name describing what a click will DO (not what is showing). */
+(() => {
+  const btn = document.getElementById("theme-toggle");
+  if (!btn) return;
+  const root = document.documentElement;
+
+  const label = () => {
+    const dark = root.getAttribute("data-theme") === "dark";
+    btn.setAttribute("aria-label", dark ? "Switch to light theme" : "Switch to dark theme");
+    btn.setAttribute("title", dark ? "Switch to light theme" : "Switch to dark theme");
+  };
+  label();
+
+  btn.addEventListener("click", () => {
+    const next = root.getAttribute("data-theme") === "dark" ? "light" : "dark";
+    root.setAttribute("data-theme", next);
+    try { localStorage.setItem("igis-theme", next); } catch (e) {}
+    label();
+  });
+
+  // Follow the OS until the reader overrides it in this browser.
+  const mq = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)");
+  if (mq && mq.addEventListener) {
+    mq.addEventListener("change", (e) => {
+      let stored = null;
+      try { stored = localStorage.getItem("igis-theme"); } catch (_) {}
+      if (stored === "dark" || stored === "light") return;
+      root.setAttribute("data-theme", e.matches ? "dark" : "light");
+      label();
+    });
+  }
+})();
+
 /* Mobile nav toggle */
 (() => {
   const btn = document.querySelector(".nav-toggle");

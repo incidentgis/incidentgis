@@ -180,6 +180,81 @@ A shelter feature is not one number on a map; it is a small graph of typed entit
 <figcaption>The shelter and typed-resource entities on the left drive the deterministic state ladder on the right; status is computed from the occupancy ratio, a closed flag overrides every state, over-capacity raises a structured COP alert, and any resource dropping below its reorder threshold raises a resupply flag.</figcaption>
 </figure>
 
+The state ladder is the part of the model that most repays being explicit, because it is the part teams are most tempted to simplify away.
+
+<svg viewBox="0 0 880 360" role="img" aria-labelledby="sh1-t sh1-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="sh1-t">The capacity state is derived from the occupancy ratio, never stored as an editable flag</title>
+  <desc id="sh1-d">A single axis of the ratio of current occupancy to maximum capacity, divided into four bands. Below 0.75 the shelter is OPEN, from 0.75 to 0.90 it is FILLING, from 0.90 to 1.00 it is NEAR_CAPACITY, and at or above 1.00 it is OVER_CAPACITY. The 0.90 boundary is the tunable SHELTER_NEAR_RATIO. Because the state is computed from the ratio on every node rather than stored as a flag someone sets, two agencies holding the same occupancy and capacity figures cannot disagree about whether the shelter is full — there is no separate field for them to disagree in. Lowering the near-capacity ratio buys lead time at a slow-intake site by declaring the pressure earlier.</desc>
+  <rect x="0" y="0" width="880" height="360" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">status = f(occupancy ÷ maximum) — there is no field for two agencies to disagree in</text>
+  <text x="8" y="88" font-size="10.5" fill="currentColor">current occupancy ÷ maximum capacity</text>
+  <rect x="160.0" y="110" width="365.2" height="52" rx="6" fill="var(--petal-soft)" stroke="var(--crimson-deep)" stroke-width="1.2"/>
+  <rect x="525.2" y="110" width="73.0" height="52" rx="6" fill="var(--petal)" stroke="var(--crimson-deep)" stroke-width="1.2"/>
+  <rect x="598.3" y="110" width="48.7" height="52" rx="6" fill="var(--ember)" opacity="0.6" stroke="var(--crimson-deep)" stroke-width="1.2"/>
+  <rect x="647.0" y="110" width="73.0" height="52" rx="6" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="1.2"/>
+  <path d="M160.0 166 V176" fill="none" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <text x="160.0" y="192" font-size="10" text-anchor="middle" fill="var(--muted)">0</text>
+  <path d="M525.2 166 V176" fill="none" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <text x="525.2" y="192" font-size="10" text-anchor="middle" fill="var(--muted)">0.75</text>
+  <path d="M598.3 166 V176" fill="none" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <text x="598.3" y="192" font-size="10" text-anchor="middle" fill="var(--muted)">0.90</text>
+  <path d="M647.0 166 V176" fill="none" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <text x="647.0" y="192" font-size="10" text-anchor="middle" fill="var(--muted)">1.00</text>
+  <path d="M720.0 166 V176" fill="none" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <text x="720.0" y="192" font-size="10" text-anchor="middle" fill="var(--muted)">1.15</text>
+  <text x="598.3" y="212" font-size="10" text-anchor="middle" fill="var(--crimson-deep)" font-weight="700">SHELTER_NEAR_RATIO</text>
+  <circle cx="746" cy="116" r="7" fill="var(--petal-soft)"/>
+  <text x="760" y="120" font-size="10.5" font-weight="700" fill="currentColor">OPEN</text>
+  <circle cx="746" cy="138" r="7" fill="var(--petal)"/>
+  <text x="760" y="142" font-size="10.5" font-weight="700" fill="currentColor">FILLING</text>
+  <circle cx="746" cy="160" r="7" fill="var(--ember)" opacity="0.6"/>
+  <text x="760" y="164" font-size="10.5" font-weight="700" fill="currentColor">NEAR_CAPACITY</text>
+  <circle cx="746" cy="182" r="7" fill="var(--crimson)"/>
+  <text x="760" y="186" font-size="10.5" font-weight="700" fill="currentColor">OVER_CAPACITY</text>
+  <text x="8" y="252" font-size="11" font-weight="700" fill="currentColor">Why derived rather than stored</text>
+  <text x="8" y="276" font-size="10.5" fill="currentColor">A stored flag is a third fact that can contradict the two it summarises. When a shelter's occupancy syncs</text>
+  <text x="8" y="294" font-size="10.5" fill="currentColor">but its flag does not, the record says 340 of 350 occupied and OPEN, and every consumer picks a different</text>
+  <text x="8" y="312" font-size="10.5" fill="currentColor">one to believe. Deriving the state removes the possibility rather than resolving the conflict.</text>
+  <text x="8" y="344" font-size="10.5" font-weight="700" fill="var(--ember-text)">SHELTER_ZERO_CAP_OVER: an open shelter with maximum 0 and any occupant is over capacity, not valid.</text>
+</svg>
+
+The temptation is to add a `status` column that a shelter manager sets, on the reasonable-sounding grounds that the manager knows things the numbers do not. The cost is that the record then carries three facts where two would do, and the third can contradict the other two. During a sync that is not a hypothetical: occupancy updates every few minutes and a manually-set flag updates when someone remembers, so the steady state of the system is a record reading "340 of 350 occupied, status OPEN" and a set of consumers that each resolve it differently. Deriving the status makes the contradiction unrepresentable rather than merely discouraged.
+
+The same reasoning drives the resupply threshold, which is the other place a stored constant quietly stops meaning anything.
+
+<svg viewBox="0 0 880 380" role="img" aria-labelledby="sh2-t sh2-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="sh2-t">Why the reorder threshold is a function of consumption rate rather than a fixed count</title>
+  <desc id="sh2-d">Cot stock at two shelters is plotted over four twelve-hour operational periods. Both start with 300 cots. A slow-intake shelter consumes about 40 per period and a surge-intake shelter about 130. A fixed reorder threshold of 50 units fires for both at very different moments: the slow shelter reaches it late in period six with ample time to resupply, while the surge shelter reaches it during period two, with only a few hours of stock left and a resupply lead time it cannot meet. A threshold derived instead from the site's own consumption rate times the configured number of lead periods fires for each at the same operational distance from running out, which is the quantity that actually matters.</desc>
+  <rect x="0" y="0" width="880" height="380" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">SHELTER_RESUPPLY_PERIODS turns a stock level into a lead time</text>
+  <text x="8" y="66" font-size="10.5" fill="var(--muted)">cots on hand</text>
+  <g stroke="var(--line-strong)" stroke-width="0.9" opacity="0.5">
+    <path d="M180 240 H820"/><path d="M180 180 H820"/><path d="M180 120 H820"/>
+  </g>
+  <g font-size="10" fill="var(--muted)">
+    <text x="140" y="304">0</text><text x="132" y="244">100</text><text x="132" y="184">200</text><text x="132" y="124">300</text>
+  </g>
+  <path d="M180 300 H820" fill="none" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <path d="M180 60 V300" fill="none" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <path d="M180 270 H820" fill="none" stroke="var(--ember)" stroke-width="1.6" stroke-dasharray="5 4"/>
+  <text x="640" y="264" font-size="10.5" font-weight="700" fill="var(--ember-text)">fixed threshold · 50 units</text>
+  <path d="M180 120 L340 144 L500 168 L660 192 L820 216" fill="none" stroke="var(--crimson-deep)" stroke-width="2.8"/>
+  <path d="M180 120 L340 198 L500 276 L660 300" fill="none" stroke="var(--crimson)" stroke-width="2.8"/>
+  <circle cx="633" cy="288" r="6" fill="var(--crimson)"/>
+  <text x="380" y="120" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">slow intake · ~40 per period</text>
+  <text x="200" y="230" font-size="10.5" font-weight="700" fill="var(--crimson)">surge intake · ~130 per period</text>
+  <text x="330" y="330" font-size="10.5" font-weight="700" fill="var(--crimson)">fires here — hours of stock left</text>
+  <g font-size="10" text-anchor="middle" fill="var(--muted)">
+    <text x="180" y="320">OP 1</text><text x="340" y="320">OP 2</text><text x="500" y="320">OP 3</text>
+    <text x="660" y="320">OP 4</text><text x="820" y="320">OP 5</text>
+  </g>
+  <text x="8" y="360" font-size="10.5" fill="currentColor">Derive the threshold from each site's own burn rate and the lead periods you can actually resupply within.</text>
+</svg>
+
+A fixed reorder point of fifty cots is a number about inventory. What an operations chief needs is a number about *time* — will a resupply run started now arrive before the shelter runs out? Those coincide only if every shelter consumes at the same rate, which is exactly what a mass-care operation does not do: an evacuation-route shelter taking walk-ins during a coastal surge burns three times what a rural reception site does, and the fixed threshold fires for it two operational periods too late.
+
+Deriving the threshold as consumption rate times `SHELTER_RESUPPLY_PERIODS` restores the property that matters. Both shelters then alarm at the same operational distance from empty, which means the alarms can be triaged by severity rather than by site, and the parameter itself becomes a statement about logistics — how many operational periods your resupply chain actually needs — rather than a guess about inventory.
+
 ## Step-by-Step Implementation
 
 ### Step 1 — Define the shelter and resource schema contract

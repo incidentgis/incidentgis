@@ -200,6 +200,42 @@ Edit conflicts in tactical GIS manifest along three axes: **spatial topology** v
   </g>
 </svg>
 
+Of the three axes, the spatial one is the only one whose severity is continuous, and that turns out to matter more than it sounds. Attribute divergence and temporal sequencing are categorical — two values either differ or they do not, one edit either precedes another or it does not. Two polygons, by contrast, overlap by an *amount*, and almost every pair of hand-digitised perimeters overlaps a little.
+
+<svg viewBox="0 0 880 400" role="img" aria-labelledby="ovl-title ovl-desc" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="ovl-title">The same overlap predicate producing opposite verdicts on either side of the 100 square metre threshold</title>
+  <desc id="ovl-desc">Two panels of overlapping agency perimeters. On the left, two evacuation polygons genuinely overlap across a wide region measuring about 4,170 square metres; because that exceeds the 100 square metre quarantine threshold it is treated as a real disagreement about who owns the ground, so the feature is quarantined and both agencies are notified. On the right, two polygons share what is effectively the same boundary, differing only by a digitising sliver of about 12 square metres drawn twenty times wider than scale for visibility; because it falls under the threshold it is snapped and merged automatically with no human involvement. The geometric test is identical in both cases — only the magnitude differs — which is why the threshold, not the predicate, is the operational decision.</desc>
+  <rect x="0" y="0" width="880" height="400" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">RESOLVER_OVERLAP_M2 = 100 — the same predicate, opposite verdicts</text>
+  <text x="60" y="76" font-size="11" font-weight="700" fill="currentColor">A · genuine overlap</text>
+  <text x="500" y="76" font-size="11" font-weight="700" fill="currentColor">B · digitising sliver</text>
+  <!-- panel A -->
+  <polygon points="60,110 290,90 310,270 80,290" fill="var(--petal-soft)" opacity="0.85" stroke="var(--crimson)" stroke-width="1.8"/>
+  <polygon points="230,120 430,100 450,280 250,300" fill="var(--petal)" opacity="0.6" stroke="var(--crimson-deep)" stroke-width="1.8"/>
+  <polygon points="230,120 292.6,113.7 310,270 247.3,275.5" fill="var(--ember)" opacity="0.55" stroke="var(--ember)" stroke-width="2"/>
+  <text x="88" y="180" font-size="10.5" fill="currentColor">county</text>
+  <text x="372" y="180" font-size="10.5" fill="currentColor">state</text>
+  <!-- panel B -->
+  <polygon points="500,110 690,100 700,280 510,290" fill="var(--petal-soft)" opacity="0.85" stroke="var(--crimson)" stroke-width="1.8"/>
+  <polygon points="694,102 860,110 850,285 704,278" fill="var(--petal)" opacity="0.6" stroke="var(--crimson-deep)" stroke-width="1.8"/>
+  <polygon points="690,100 694,102 704,278 700,280" fill="var(--ember)" stroke="var(--ember)" stroke-width="2"/>
+  <text x="528" y="180" font-size="10.5" fill="currentColor">county</text>
+  <text x="770" y="180" font-size="10.5" fill="currentColor">state</text>
+  <text x="560" y="318" font-size="9.5" fill="var(--muted)">sliver drawn 20× wide</text>
+  <!-- verdicts -->
+  <text x="60" y="330" font-size="11" font-weight="700" fill="var(--crimson-deep)">4 170 m² &gt; 100 m²</text>
+  <text x="60" y="348" font-size="10.5" fill="currentColor">quarantine · both agencies notified</text>
+  <text x="500" y="330" font-size="11" font-weight="700" fill="var(--crimson-deep)">12 m² &lt; 100 m²</text>
+  <text x="500" y="348" font-size="10.5" fill="currentColor">snap and merge · no human involved</text>
+  <!-- scale -->
+  <path d="M60 374 H160 M60 369 V379 M160 369 V379" fill="none" stroke="var(--muted)" stroke-width="1.4"/>
+  <text x="168" y="378" font-size="10" fill="var(--muted)">65 m</text>
+</svg>
+
+Without a threshold, the resolver would quarantine essentially every pair of adjacent perimeters in the incident, because two analysts tracing the same ridge line will never produce coincident vertices. `RESOLVER_OVERLAP_M2` is what converts "these polygons intersect" — always true, operationally meaningless — into "these agencies disagree about who owns this ground", which is the question worth waking someone for. Set it too low and the review queue fills with digitising noise until operators start clearing it without reading; set it too high and a genuine hundred-metre disagreement about an evacuation boundary merges silently.
+
+One caution about how that area is measured. The default `RESOLVER_AREA_CRS` of EPSG:3857 is convenient and wrong for this purpose at any temperate latitude — a 100 m² threshold evaluated in Web Mercator at 45° N is really a 50 m² threshold, and at 60° N a 25 m² one, so the resolver becomes progressively more sensitive the further north the incident sits. Set it to the incident's UTM zone, as the [coordinate reference system standard](https://www.incidentgis.com/core-emergency-gis-architecture-data-standards/coordinate-reference-systems-for-disaster-zones/) requires for any area comparison, and the threshold means the same thing everywhere.
+
 ## Step-by-Step Implementation
 
 The service follows a staged execution model — ingestion, validation/classification, resolution, commit — and each stage is stateless so it can run in a container and be horizontally scaled behind the ingestion queue.
@@ -393,6 +429,48 @@ These parameters are the tunable surface of the resolver. Treat them as policy, 
 | Replay batch size | `RESOLVER_BATCH` | `500` | Deltas reconciled per micro-batch on reconnect |
 | Retry backoff base | `RESOLVER_BACKOFF_S` | `2.0` | Base seconds for exponential backoff on transient sync failures |
 | Clock-skew tolerance | `RESOLVER_SKEW_S` | `5.0` | Allowed `last_edited` skew before a tie is logged as suspect |
+
+The skew tolerance is the parameter most likely to be misread as a precision setting, so it is worth being explicit about what it selects between.
+
+<svg viewBox="0 0 880 360" role="img" aria-labelledby="skew-title skew-desc" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="skew-title">How the five-second clock-skew tolerance decides whether two edits can be ordered by time</title>
+  <desc id="skew-desc">Two cases plotted on a twenty-second timeline. A shaded window of plus or minus five seconds around replica A's edit marks the span in which two timestamps cannot be trusted to order the edits, because the replicas' clocks are not synchronised to each other. In case one, replica B edits 1.2 seconds after replica A, inside the window, so the tie is recorded as suspect: the resolver falls back to agency precedence and raises a review flag rather than believing the clock. In case two, replica B edits 8.5 seconds after replica A, outside the window, so the later edit is treated as a genuine causal successor and applied in order. The tolerance is therefore not an error bar on the measurement — it is the boundary between two different resolution rules.</desc>
+  <rect x="0" y="0" width="880" height="360" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">RESOLVER_SKEW_S = 5.0 — the span in which timestamps cannot order two edits</text>
+  <text x="201" y="76" font-size="10.5" fill="var(--muted)">±5 s skew window</text>
+  <!-- case 1 -->
+  <path d="M201 106 H471 V154 H201 Z" fill="var(--petal-soft)" opacity="0.9"/>
+  <path d="M120 130 H660" fill="none" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <text x="8" y="126" font-size="11" font-weight="700" fill="currentColor">case 1</text>
+  <text x="8" y="142" font-size="10" fill="var(--muted)">Δ 1.2 s</text>
+  <circle cx="336" cy="130" r="8" fill="var(--crimson)"/>
+  <circle cx="368.4" cy="130" r="8" fill="var(--ember)"/>
+  <text x="286" y="98" font-size="10" fill="currentColor">replica A</text>
+  <text x="336" y="176" font-size="10" fill="currentColor">replica B</text>
+  <text x="680" y="126" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">tie is suspect —</text>
+  <text x="680" y="142" font-size="10.5" fill="currentColor">precedence + review flag</text>
+  <!-- case 2 -->
+  <path d="M201 226 H471 V274 H201 Z" fill="var(--petal-soft)" opacity="0.9"/>
+  <path d="M120 250 H660" fill="none" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <text x="8" y="246" font-size="11" font-weight="700" fill="currentColor">case 2</text>
+  <text x="8" y="262" font-size="10" fill="var(--muted)">Δ 8.5 s</text>
+  <circle cx="336" cy="250" r="8" fill="var(--crimson)"/>
+  <circle cx="565.5" cy="250" r="8" fill="var(--crimson-deep)"/>
+  <text x="286" y="218" font-size="10" fill="currentColor">replica A</text>
+  <text x="516" y="296" font-size="10" fill="currentColor">replica B</text>
+  <text x="680" y="246" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">genuine successor —</text>
+  <text x="680" y="262" font-size="10.5" fill="currentColor">apply in causal order</text>
+  <!-- shared axis -->
+  <g font-size="10" text-anchor="middle" fill="var(--muted)">
+    <text x="120" y="322">0 s</text><text x="255" y="322">5</text><text x="390" y="322">10</text>
+    <text x="525" y="322">15</text><text x="660" y="322">20 s</text>
+  </g>
+  <text x="440" y="348" font-size="11" text-anchor="middle" fill="var(--muted)">The tolerance is not an error bar — it is the boundary between two different resolution rules.</text>
+</svg>
+
+Inside the window, the resolver is not saying "I cannot tell these apart to better than five seconds". It is saying something stronger: that the two timestamps carry no ordering information at all, because they were produced by clocks that were never synchronised to each other, and a 1.2-second difference is as likely to be a clock offset as an actual sequence. The correct response to no information is not to guess with a coin weighted by milliseconds — it is to fall back to a rule that does not depend on the clock, which is agency precedence, and to record that the fallback was used so the after-action review can find every decision made on that basis.
+
+Outside the window, the assumption flips: a gap larger than any plausible skew is evidence of genuine causal ordering, and the later edit is applied as a successor. Choosing the value is therefore a question about your fleet rather than about the resolver. Devices synchronising against a common NTP source over a stable link hold well under a second and a two-second tolerance is generous; a fleet including tablets that have been off-network for hours can drift by tens of seconds, and a five-second setting will silently classify real successors as suspect ties. Measure the actual distribution of clock offsets across your devices at check-in and set the tolerance from its tail, not from a round number.
 
 ## Verification and Smoke Test
 

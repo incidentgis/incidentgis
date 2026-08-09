@@ -127,17 +127,17 @@ This is dangerous rather than merely inconvenient because the perimeter drives l
   <text x="799" y="118" font-size="11" text-anchor="middle" font-weight="700" fill="currentColor">Union geometries</text>
   <text x="799" y="134" font-size="9.5" text-anchor="middle" fill="currentColor">keep both · {A:1, B:1}</text>
   <!-- branch: conflict -->
-  <path d="M710,222 C742,244 756,272 786,286" fill="none" stroke="var(--crimson, currentColor)" stroke-width="1.5" marker-end="url(#perimeter-arrow)"/>
-  <text x="758" y="270" font-size="9" text-anchor="middle" fill="var(--crimson, currentColor)">same area</text>
-  <rect x="726" y="290" width="146" height="60" rx="8" fill="var(--petal-soft, none)" stroke="var(--crimson, currentColor)" stroke-width="1.7"/>
-  <text x="799" y="312" font-size="11" text-anchor="middle" font-weight="700" fill="var(--crimson, currentColor)">Conflict flag</text>
-  <text x="799" y="328" font-size="9.5" text-anchor="middle" fill="currentColor">keep both candidates</text>
-  <text x="799" y="341" font-size="9.5" text-anchor="middle" fill="currentColor">escalate to editor</text>
+  <path d="M710,224 C744,248 768,276 800,286" fill="none" stroke="var(--crimson, currentColor)" stroke-width="1.5" marker-end="url(#perimeter-arrow)"/>
+  <text x="764" y="268" font-size="9" text-anchor="middle" fill="var(--crimson, currentColor)">same area</text>
+  <rect x="742" y="290" width="130" height="60" rx="8" fill="var(--petal-soft, none)" stroke="var(--crimson, currentColor)" stroke-width="1.7"/>
+  <text x="807" y="312" font-size="11" text-anchor="middle" font-weight="700" fill="var(--crimson, currentColor)">Conflict flag</text>
+  <text x="807" y="328" font-size="9.5" text-anchor="middle" fill="currentColor">keep both candidates</text>
+  <text x="807" y="341" font-size="9.5" text-anchor="middle" fill="currentColor">escalate to editor</text>
   <!-- audit trail bar -->
   <rect x="70" y="410" width="740" height="34" rx="8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="4 4"/>
   <text x="440" y="431" font-size="11" text-anchor="middle" font-weight="600" fill="currentColor">Audit trail · base version · both incoming versions · strategy applied · result geometry hash</text>
-  <path d="M799,148 V404" fill="none" stroke="currentColor" stroke-width="1.1" opacity="0.6" marker-end="url(#perimeter-plain)"/>
-  <path d="M799,350 V404" fill="none" stroke="var(--crimson, currentColor)" stroke-width="1.1" opacity="0.7" marker-end="url(#perimeter-arrow)"/>
+  <path d="M742,148 V170 H725 V404" fill="none" stroke="currentColor" stroke-width="1.1" opacity="0.6" marker-end="url(#perimeter-plain)"/>
+  <path d="M807,350 V404" fill="none" stroke="var(--crimson, currentColor)" stroke-width="1.1" opacity="0.7" marker-end="url(#perimeter-arrow)"/>
 </svg>
 
 ## Tiered Resolution Strategy
@@ -149,6 +149,70 @@ Reconcile in ordered tiers, from the definitive causal check down to a safe defa
 3. **Last-writer-wins-with-merge for disjoint corrections.** For corrective edits that trim area, apply the newer edit only in the region it changed, and only where it does not overlap the other agency's edit. This keeps a valid correction without letting it silently undo an unrelated change.
 4. **Raise a conflict flag when edits disagree on the same area (safe default).** If the two edits alter the same region in incompatible directions — one extends where the other trims — do not pick a winner. Retain both candidates, mark the feature conflicted, publish the most conservative geometry to the COP, and escalate to a human editor.
 5. **Emit an audit record for every reconciliation.** Base version, both incoming vectors, the strategy applied, and the resulting geometry hash, so any merged perimeter is reproducible against the exact inputs and rule that produced it.
+
+Tier one turns on a test that is easy to state and easy to implement wrong, because the intuition of "higher version wins" does not survive contact with two independent editors.
+
+<svg viewBox="0 0 880 380" role="img" aria-labelledby="vv-t vv-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="vv-t">Reading two version vectors: dominance versus genuine concurrency</title>
+  <desc id="vv-d">Three pairs of version vectors for one perimeter, each read against the shared base of A zero B zero. In the first pair, A one B zero and A two B zero, the second vector is greater in every position, so it strictly dominates: it is a causal successor and can simply be applied. In the second pair, A one B zero and A zero B one, neither is greater in every position, so the edits are genuinely concurrent and must be merged rather than ordered. In the third pair, A two B one and A one B two, neither dominates either, so despite both agencies having seen some of each other's work the edits are still concurrent. Dominance is a property of the whole vector, not of its largest element, which is why a scalar version number cannot express it.</desc>
+  <rect x="0" y="0" width="880" height="380" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">dominance is a property of the whole vector, which is why a scalar version cannot express it</text>
+  <text x="8" y="78" font-size="10" fill="var(--muted)">shared base: {A:0, B:0}</text>
+  <g>
+    <rect x="60" y="96" width="150" height="52" rx="8" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.4"/>
+    <rect x="250" y="96" width="150" height="52" rx="8" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.4"/>
+    <rect x="60" y="184" width="150" height="52" rx="8" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.4"/>
+    <rect x="250" y="184" width="150" height="52" rx="8" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.4"/>
+    <rect x="60" y="272" width="150" height="52" rx="8" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.4"/>
+    <rect x="250" y="272" width="150" height="52" rx="8" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.4"/>
+  </g>
+  <g font-size="13" font-weight="700" text-anchor="middle" fill="currentColor">
+    <text x="135" y="128">{A:1, B:0}</text><text x="325" y="128">{A:2, B:0}</text>
+    <text x="135" y="216">{A:1, B:0}</text><text x="325" y="216">{A:0, B:1}</text>
+    <text x="135" y="304">{A:2, B:1}</text><text x="325" y="304">{A:1, B:2}</text>
+  </g>
+  <g font-size="11" font-weight="700" fill="var(--crimson-deep)">
+    <text x="440" y="118">second dominates</text>
+    <text x="440" y="206">neither dominates</text>
+    <text x="440" y="294">neither dominates</text>
+  </g>
+  <g font-size="10" fill="currentColor">
+    <text x="440" y="136">a clean successor — apply it</text>
+    <text x="440" y="224">genuinely concurrent — merge, never order</text>
+    <text x="440" y="312">still concurrent, even though each saw some of the other</text>
+  </g>
+  <text x="8" y="360" font-size="10.5" fill="currentColor">The third row is the one that surprises people: partial awareness of each other is not causality.</text>
+</svg>
+
+The third row is the one that catches people out. Both agencies have seen some of each other's work — A has incorporated one of B's edits, B has incorporated one of A's — and it is tempting to read that as "they are roughly in sync, take the higher total". Summing the vector destroys exactly the information it exists to carry: `{A:2, B:1}` and `{A:1, B:2}` both total three, and each describes a history the other has not seen. They are concurrent, and the merge path is the correct one.
+
+That is also why a single incrementing version number cannot do this job. A scalar can express "newer" but not "newer *than what*", so two editors incrementing independently produce the same number for different states, and any tie-break the resolver applies is a guess dressed as a rule.
+
+Once concurrency is established, tier two decides what merging actually means.
+
+<svg viewBox="0 0 880 380" role="img" aria-labelledby="ug-t ug-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="ug-t">Union versus last-writer-wins on two concurrent perimeter edits</title>
+  <desc id="ug-d">A base perimeter is edited concurrently: agency A extends the north-east edge to enclose a spot fire while agency B trims a bulge on the south-west. Under union, the result keeps agency A's extension and agency B's original ground, so the hazard area never shrinks and no growth edit is lost. Under last-writer-wins, whichever edit is applied second replaces the other outright, so either the spot fire falls outside the perimeter or the corrected bulge returns. For a spreading hazard the union result is conservative in the direction that matters, which is why it is the default for growth edits; for corrective edits that trim area the same rule would preserve mistakes, which is why intent has to be carried on the edit rather than inferred from the geometry.</desc>
+  <rect x="0" y="0" width="880" height="380" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">two concurrent edits, two merge rules, two different fire perimeters</text>
+  <text x="70" y="80" font-size="11" font-weight="700" fill="currentColor">union — keeps both</text>
+  <text x="500" y="80" font-size="11" font-weight="700" fill="currentColor">last-writer-wins — keeps one</text>
+  <polygon points="70,110 250,96 300,150 270,250 150,290 66,220" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.8"/>
+  <polygon points="240,100 340,120 350,200 268,246" fill="var(--crimson)" opacity="0.35" stroke="var(--crimson)" stroke-width="1.6"/>
+  <text x="266" y="164" font-size="9.5" font-weight="700" fill="var(--crimson-deep)">A's spot fire</text>
+  <text x="96" y="270" font-size="9.5" font-weight="700" fill="var(--crimson-deep)">B's trim held</text>
+  <polygon points="500,110 680,96 730,150 700,250 580,290 496,220" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.8"/>
+  <polygon points="496,220 580,290 640,262 590,214" fill="var(--ember)" opacity="0.4" stroke="var(--ember)" stroke-width="1.8" stroke-dasharray="5 4"/>
+  <text x="520" y="264" font-size="9.5" font-weight="700" fill="var(--ember-text)">B's trim reverted</text>
+  <text x="700" y="164" font-size="9.5" font-weight="700" fill="var(--ember-text)">or A's extension lost</text>
+  <text x="70" y="326" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">hazard area never shrinks — no growth edit is lost</text>
+  <text x="500" y="326" font-size="10.5" font-weight="700" fill="var(--ember-text)">whichever arrived second silently replaces the other</text>
+  <text x="8" y="362" font-size="10.5" fill="currentColor">Intent must ride on the edit: the same rule that protects a growth edit would preserve a mistake on a corrective one.</text>
+</svg>
+
+For a spreading hazard the union is conservative in the direction that matters: no area any agency marked as affected is ever removed, so the failure mode is an evacuation zone slightly too large rather than one that excludes a threatened block. Last-writer-wins is conservative in no direction at all — it silently discards whichever edit lost, and which one loses is determined by arrival order on a link nobody controls.
+
+The reason intent has to travel on the edit rather than be inferred from the geometry is the symmetric case. B's trim was a *correction*: the bulge was a digitising error and removing it made the perimeter more accurate. Union preserves that error, because union preserves everything. Applying union to a corrective edit is the same mistake as applying last-writer-wins to a growth edit, made in the opposite direction, and no amount of geometric analysis distinguishes "this agency added area because the fire grew" from "this agency added area because they traced it badly". Only the editor knows, so the editor's client must say.
 
 ## Production Python Implementation
 

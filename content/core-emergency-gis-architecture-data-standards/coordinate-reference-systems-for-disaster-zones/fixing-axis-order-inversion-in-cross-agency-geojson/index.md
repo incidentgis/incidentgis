@@ -152,6 +152,86 @@ This is dangerous, not merely inconvenient, because a transposed coordinate rare
   <text x="591" y="428" font-size="9.5" text-anchor="middle" fill="currentColor">so no reprojection reintroduces authority (lat,lon) axis order</text>
 </svg>
 
+It is worth seeing the relocation rather than reading it, because the distances involved explain why nobody catches this by looking at a map.
+
+<svg viewBox="0 0 880 400" role="img" aria-labelledby="ax1-t ax1-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="ax1-t">Where two transposed incidents land, and why neither looks broken</title>
+  <desc id="ax1-d">A world graticule with two pairs of markers. A New Mexico incident at 34 degrees north, 106 degrees west relocates to 34 degrees east, 106 degrees south when its coordinates are transposed — except that 106 degrees south is not a valid latitude, so it clamps to the southern edge. A Gulf Coast shelter at 29 degrees north, 90 degrees west relocates to 29 degrees east, 90 degrees south, landing on Antarctica. Both transposed points are syntactically valid positions that a client will happily draw. Neither raises an error, neither is null island, and neither is visibly wrong unless somebody is looking at a world view rather than at the incident extent — which during a response nobody is.</desc>
+  <rect x="0" y="0" width="880" height="400" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">a transposed coordinate is a valid point somewhere else on Earth</text>
+  <rect x="120" y="70" width="640" height="260" rx="6" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <g stroke="var(--line-strong)" stroke-width="0.9" opacity="0.6">
+    <path d="M120 200 H760"/><path d="M440 70 V330"/>
+    <path d="M280 70 V330"/><path d="M600 70 V330"/><path d="M120 135 H760"/><path d="M120 265 H760"/>
+  </g>
+  <g font-size="9.5" fill="var(--muted)">
+    <text x="126" y="196">180°W</text><text x="446" y="196">0°</text><text x="716" y="196">180°E</text>
+    <text x="446" y="84">90°N</text><text x="446" y="326">90°S</text>
+  </g>
+  <circle cx="252" cy="151" r="8" fill="var(--crimson)"/>
+  <circle cx="500" cy="322" r="8" fill="var(--ember)"/>
+  <path d="M262 155 Q380 260 492 318" fill="none" stroke="var(--ember)" stroke-width="1.4" stroke-dasharray="5 4"/>
+  <circle cx="280" cy="158" r="8" fill="var(--crimson)"/>
+  <circle cx="492" cy="322" r="8" fill="var(--ember)"/>
+  <text x="130" y="128" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">as written: 34°N 106°W · 29°N 90°W</text>
+  <text x="530" y="316" font-size="10.5" font-weight="700" fill="var(--ember-text)">as read: 34°E 106°S · 29°E 90°S</text>
+  <g font-size="10.5" fill="currentColor">
+    <text x="8" y="358">Nothing in the file records which convention was used — RFC 7946 says x,y; the EPSG registry says y,x.</text>
+    <text x="8" y="376">Only the position gives it away, and only from a view nobody opens during a response.</text>
+  </g>
+</svg>
+
+Both transposed points are syntactically legal. Both draw. Neither triggers a validation error, and neither lands on null island, which is the one wrong position most pipelines already check for. The only view in which the error is obvious is a world view, and a world view is precisely what nobody opens while working an incident — the map is zoomed to the incident extent, where a transposed feature is simply absent, and an absent feature reads as "that agency has not sent theirs yet".
+
+That absence is the detection opportunity, and it is what the bounds test formalises. Testing each position against the incident's expected extent in both readings produces a pair of answers, and the pair — not either answer alone — determines what to do.
+
+<svg viewBox="0 0 880 380" role="img" aria-labelledby="ax2-t ax2-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="ax2-t">The per-feature bounds test and the four outcomes it can produce</title>
+  <desc id="ax2-d">Each incoming position is tested twice against the incident's expected bounding box: once as written and once with x and y swapped. Four outcomes follow. If it passes as written and fails swapped, it is already correct and is accepted untouched. If it fails as written and passes swapped, it is transposed, so the pair is swapped and an audit record is written. If it passes both tests the extent is ambiguous — which happens for any incident whose bounding box is near-square and straddles the diagonal — so the feature is accepted as written and flagged, never silently swapped. If it fails both it belongs to neither convention and is rejected to the review queue. Only the second outcome mutates data, and it never fires without recording that it did.</desc>
+  <rect x="0" y="0" width="880" height="380" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">test both readings against the incident extent, then act on the pair of answers</text>
+  <text x="300" y="76" font-size="10.5" font-weight="700" text-anchor="middle" fill="var(--crimson-deep)">as written</text>
+  <text x="470" y="76" font-size="10.5" font-weight="700" text-anchor="middle" fill="var(--crimson-deep)">swapped</text>
+  <text x="620" y="76" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">what happens</text>
+  <g>
+    <rect x="230" y="90" width="140" height="56" rx="7" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.2"/>
+    <rect x="400" y="90" width="140" height="56" rx="7" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.2"/>
+    <rect x="230" y="160" width="140" height="56" rx="7" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.2"/>
+    <rect x="400" y="160" width="140" height="56" rx="7" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.2"/>
+    <rect x="230" y="230" width="140" height="56" rx="7" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.2"/>
+    <rect x="400" y="230" width="140" height="56" rx="7" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.2"/>
+    <rect x="230" y="300" width="140" height="56" rx="7" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.2"/>
+    <rect x="400" y="300" width="140" height="56" rx="7" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.2"/>
+  </g>
+  <g font-size="11" font-weight="700" text-anchor="middle">
+    <text x="300" y="124" fill="var(--crimson-deep)">inside</text>
+    <text x="470" y="124" fill="var(--ember-text)">outside</text>
+    <text x="300" y="194" fill="var(--ember-text)">outside</text>
+    <text x="470" y="194" fill="var(--crimson-deep)">inside</text>
+    <text x="300" y="264" fill="var(--crimson-deep)">inside</text>
+    <text x="470" y="264" fill="var(--crimson-deep)">inside</text>
+    <text x="300" y="334" fill="var(--ember-text)">outside</text>
+    <text x="470" y="334" fill="var(--ember-text)">outside</text>
+  </g>
+  <g font-size="10.5" fill="currentColor">
+    <text x="620" y="114" font-weight="700">already correct</text>
+    <text x="620" y="132">accept untouched</text>
+    <text x="620" y="184" font-weight="700">transposed</text>
+    <text x="620" y="202">swap · write audit record</text>
+    <text x="620" y="254" font-weight="700">ambiguous extent</text>
+    <text x="620" y="272">accept as written · flag</text>
+    <text x="620" y="324" font-weight="700">neither convention</text>
+    <text x="620" y="342">reject to review</text>
+  </g>
+  <g font-size="10.5" fill="currentColor">
+    <text x="8" y="124">1</text><text x="8" y="194">2</text><text x="8" y="264">3</text><text x="8" y="334">4</text>
+  </g>
+</svg>
+
+Rows one and four are uncontroversial. Row two is the correction the whole guide exists for, and note that it is the only row that mutates data, which is exactly why it is also the only row that must write an audit record: a corrected coordinate is indistinguishable from a coordinate that arrived correct unless the correction is recorded.
+
+Row three is the one that gets skipped and should not be. An incident whose bounding box is roughly square and straddles the diagonal — anything near 35°N 35°W, but also any small extent tested against a generously padded box — will pass both readings, and a pipeline that treats "passes swapped" as sufficient evidence will happily transpose a correct feature. Accepting as written and flagging is the right behaviour there: the direct reading is what RFC 7946 mandates, so it is the correct default, and the flag gives a reviewer the chance to confirm it against a landmark rather than against arithmetic.
+
 ## Tiered Resolution Strategy
 
 Correct the layer in ordered tiers, from the definitive fix down to a safe default that is always flagged for audit. Never silently transpose an entire file on a hunch — a blanket swap will invert the features that were already correct.

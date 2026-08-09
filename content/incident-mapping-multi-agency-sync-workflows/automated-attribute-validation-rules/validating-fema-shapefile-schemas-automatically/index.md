@@ -87,6 +87,59 @@ Validation cannot be all-or-nothing during a response; a hard reject on the only
 3. **Coerce and repair in place.** Truncate over-length strings to the contract limit, repair invalid polygon topology with `make_valid()`, and cast numeric fields to their declared types.
 4. **Safe default with audit flag.** When a mandatory field genuinely cannot be recovered, do not drop the feature silently. Route it to a quarantine GeoPackage with a structured audit record naming the failed field and rule, so a reconciliation pass can resolve it once the surge eases.
 
+The distinction that makes this worth automating is between a field being *present* and a field being *conformant*, which a manual review conflates almost every time.
+
+<svg viewBox="0 0 880 400" role="img" aria-labelledby="fe-t fe-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="fe-t">A submission checked field by field against the required element set</title>
+  <desc id="fe-d">Seven required elements checked against one agency submission. Four are present and correctly typed. SEVERITY is present but carries a value outside the permitted enumeration. ACRES is present but declared as an integer where a decimal with two places is required, so fractional acreage is silently truncated on load. SRC_AGENCY is absent entirely. Only the absent field would be caught by a check that asks whether the column exists; the other two failures are present-but-wrong, which is the category that reaches the reviewer looking complete. A conformance check therefore has to compare declared types and enumerations, not merely names.</desc>
+  <rect x="0" y="0" width="880" height="400" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">present is not the same as conformant</text>
+  <text x="8" y="76" font-size="10" fill="var(--muted)">required element</text>
+  <text x="216" y="76" font-size="10" fill="var(--muted)">declared type</text>
+  <text x="330" y="76" font-size="10" fill="var(--muted)">state in this submission</text>
+  <rect x="200" y="92" width="500" height="30" rx="5" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.4"/>
+  <text x="8" y="112" font-size="10.5" font-family="var(--font-mono)" fill="currentColor">INCIDENT_ID</text>
+  <text x="216" y="112" font-size="10.5" font-family="var(--font-mono)" fill="var(--muted)">C(20)</text>
+  <text x="330" y="112" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">present</text>
+  <rect x="200" y="130" width="500" height="30" rx="5" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.4"/>
+  <text x="8" y="150" font-size="10.5" font-family="var(--font-mono)" fill="currentColor">INCIDENT_NM</text>
+  <text x="216" y="150" font-size="10.5" font-family="var(--font-mono)" fill="var(--muted)">C(60)</text>
+  <text x="330" y="150" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">present</text>
+  <rect x="200" y="168" width="500" height="30" rx="5" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.4"/>
+  <text x="8" y="188" font-size="10.5" font-family="var(--font-mono)" fill="currentColor">DECLARED_DT</text>
+  <text x="216" y="188" font-size="10.5" font-family="var(--font-mono)" fill="var(--muted)">D</text>
+  <text x="330" y="188" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">present</text>
+  <rect x="200" y="206" width="500" height="30" rx="5" fill="var(--cream)" stroke="var(--ember)" stroke-width="1.4"/>
+  <text x="8" y="226" font-size="10.5" font-family="var(--font-mono)" fill="currentColor">SEVERITY</text>
+  <text x="216" y="226" font-size="10.5" font-family="var(--font-mono)" fill="var(--muted)">C(12)</text>
+  <text x="330" y="226" font-size="10.5" font-weight="700" fill="var(--ember-text)">enum mismatch</text>
+  <rect x="200" y="244" width="500" height="30" rx="5" fill="var(--cream)" stroke="var(--ember)" stroke-width="1.4"/>
+  <text x="8" y="264" font-size="10.5" font-family="var(--font-mono)" fill="currentColor">ACRES</text>
+  <text x="216" y="264" font-size="10.5" font-family="var(--font-mono)" fill="var(--muted)">N(12,2)</text>
+  <text x="330" y="264" font-size="10.5" font-weight="700" fill="var(--ember-text)">typed N(10,0)</text>
+  <rect x="200" y="282" width="500" height="30" rx="5" fill="var(--cream)" stroke="var(--ember)" stroke-width="1.4"/>
+  <text x="8" y="302" font-size="10.5" font-family="var(--font-mono)" fill="currentColor">SRC_AGENCY</text>
+  <text x="216" y="302" font-size="10.5" font-family="var(--font-mono)" fill="var(--muted)">C(40)</text>
+  <text x="330" y="302" font-size="10.5" font-weight="700" fill="var(--ember-text)">absent</text>
+  <rect x="200" y="320" width="500" height="30" rx="5" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.4"/>
+  <text x="8" y="340" font-size="10.5" font-family="var(--font-mono)" fill="currentColor">GEOM_TYPE</text>
+  <text x="216" y="340" font-size="10.5" font-family="var(--font-mono)" fill="var(--muted)">C(12)</text>
+  <text x="330" y="340" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">present</text>
+  <rect x="720" y="130" width="140" height="30" rx="5" fill="var(--cream)" stroke="var(--ember)" stroke-width="1.4"/>
+  <text x="736" y="150" font-size="9.5" font-weight="700" fill="var(--ember-text)">value outside enum</text>
+  <rect x="720" y="168" width="140" height="30" rx="5" fill="var(--cream)" stroke="var(--ember)" stroke-width="1.4"/>
+  <text x="736" y="188" font-size="9.5" font-weight="700" fill="var(--ember-text)">decimals truncated</text>
+  <rect x="720" y="206" width="140" height="30" rx="5" fill="var(--cream)" stroke="var(--ember)" stroke-width="1.4"/>
+  <text x="736" y="226" font-size="9.5" font-weight="700" fill="var(--ember-text)">the only obvious one</text>
+  <text x="8" y="372" font-size="10.5" fill="currentColor">A name-only check passes six of seven and admits a submission with an invalid severity and truncated acreage.</text>
+</svg>
+
+A reviewer opening the attribute table sees seven columns with the right names and reasonable-looking values. The absent `SRC_AGENCY` is obvious and gets flagged. The other two failures are not visible at all: `SEVERITY` holds a string the agency uses internally that is not in the permitted enumeration, and `ACRES` is declared as an integer, so every fractional acreage in the submission was truncated at load time and the values on screen are the truncated ones. Nothing in the table announces either.
+
+The acreage case is the one worth internalising, because the data loss happened before anybody looked. A DBF column declared `N(10,0)` cannot hold 4,182.65; the writer rounded it, and the original value exists only in the source system. Re-exporting with the correct type does not recover it — the submission has to be regenerated. That is a materially different remediation from "add the missing column", and knowing which one you are facing is the difference between a ten-minute fix and a resubmission.
+
+So the check has to read the DBF field descriptors rather than the loaded DataFrame. By the time `geopandas` has a frame in memory, the declared width and decimal count are gone and an integer column is indistinguishable from a decimal column that happens to hold whole numbers. Read the descriptors, compare them to the required element set, and report type mismatches with the same severity as absences — because in this case the type mismatch is the more expensive one.
+
 ## Production Python Implementation
 
 The handler below walks the full resolution path: read, remap fields against the alias table, validate the schema contract, repair geometry, normalise CRS, and emit a structured audit trail for every feature it cannot pass cleanly. It uses explicit type hints and structured logging, and never drops a feature without recording why.
@@ -244,6 +297,37 @@ def validate_fema_shapefile(
 ```
 
 The audit JSON is the load-bearing output here: it is what lets a post-surge reconciliation worker re-process quarantined features and what satisfies the chain-of-custody expectations that downstream [conflict resolution in multi-agency edits](https://www.incidentgis.com/incident-mapping-multi-agency-sync-workflows/conflict-resolution-in-multi-agency-edits/) relies on when reconciling the same layer across agencies.
+
+It is worth tracing exactly where the acreage went, because it determines what the remediation has to be.
+
+<svg viewBox="0 0 880 360" role="img" aria-labelledby="f2-t f2-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="f2-t">Where the truncation happens, and why re-exporting does not recover it</title>
+  <desc id="f2-d">A value of 4,182.65 acres travels from the source system through a DBF column declared as a ten-digit integer with no decimal places. The writer rounds it to 4,183 at the moment it is written, so the fractional part is gone before the file exists. Everything downstream — the loaded frame, the validation check, the reviewer's attribute table — sees 4,183 and has no way to know it was ever anything else. Correcting the column type and re-exporting from the already-written shapefile reproduces 4,183.00, not the original value; only regenerating from the source system recovers it. This is why a type mismatch is a resubmission rather than a repair.</desc>
+  <rect x="0" y="0" width="880" height="360" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">the loss happens at write time — everything after it is downstream of the evidence</text>
+  <rect x="40" y="96" width="180" height="64" rx="9" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.6"/>
+  <text x="58" y="122" font-size="10.5" font-weight="700" fill="currentColor">source system</text>
+  <text x="58" y="144" font-size="14" font-weight="700" fill="var(--crimson-deep)">4182.65</text>
+  <path d="M220 128 H300" fill="none" stroke="var(--crimson)" stroke-width="2"/>
+  <rect x="300" y="96" width="180" height="64" rx="9" fill="var(--cream)" stroke="var(--ember)" stroke-width="2"/>
+  <text x="318" y="122" font-size="10.5" font-weight="700" fill="var(--ember-text)">DBF write · N(10,0)</text>
+  <text x="318" y="144" font-size="14" font-weight="700" fill="var(--ember-text)">4183</text>
+  <path d="M480 128 H560" fill="none" stroke="var(--crimson)" stroke-width="2"/>
+  <rect x="560" y="96" width="280" height="64" rx="9" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <text x="578" y="122" font-size="10.5" font-weight="700" fill="currentColor">frame · check · reviewer's table</text>
+  <text x="578" y="144" font-size="14" font-weight="700" fill="currentColor">4183 — and no trace of 4182.65</text>
+  <text x="318" y="182" font-size="10" font-weight="700" fill="var(--ember-text)">the fractional part ceases to exist here</text>
+  <rect x="40" y="222" width="800" height="52" rx="9" fill="var(--cream)" stroke="var(--ember)" stroke-width="1.8"/>
+  <text x="60" y="244" font-size="10.5" font-weight="700" fill="var(--ember-text)">re-exporting the shapefile with a corrected type yields 4183.00</text>
+  <text x="60" y="264" font-size="10.5" fill="currentColor">only regeneration from the source recovers the value — which is why a type mismatch is a resubmission, not a repair</text>
+  <text x="8" y="316" font-size="10.5" fill="currentColor">Read the DBF field descriptors, not the loaded frame: once it is a DataFrame, N(10,0) and N(12,2) look identical.</text>
+</svg>
+
+The practical rule that follows: report type mismatches as *blocking* and with a remediation of "regenerate from source", not "fix and re-export". Those read similarly in a ticket and mean entirely different things — one is a five-minute GDAL invocation against the file you already have, the other requires the authoring agency to run their export again. Getting the wording wrong sends a reviewer down a path that produces a conformant-looking file containing rounded values, which is the same defect with a passing check on top of it.
+
+The same reasoning applies to string widths. A `C(20)` column receiving a 34-character incident name truncates it at write time, and the truncated name is what every downstream match will use. Because incident names are frequently the join key between an agency's records and the federal submission, a silently shortened name breaks correlation in a way that surfaces weeks later as "our numbers do not reconcile".
+
+Check widths and decimal counts on every character and numeric field, not only on the ones that look important. The cost is a few lines against the field descriptors; the alternative is discovering the constraint by finding the data that violated it.
 
 ## Validation Checklist
 

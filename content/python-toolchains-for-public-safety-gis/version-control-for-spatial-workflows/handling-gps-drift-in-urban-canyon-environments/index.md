@@ -186,6 +186,46 @@ Correct the stream in ordered tiers, from the definitive fix down to a safe defa
 4. **Snap to a topological constraint (optional hardening).** Where a validated road or access-route network exists, map-match the held position onto it so the track cannot drift into an impassable alley or a building interior.
 5. **Emit an audit record for every override.** Original coordinate, substituted coordinate, reason code, confidence, and the calibration version — so any corrected track is reproducible against the exact parameters that produced it.
 
+Urban multipath does not look like noise, which is why filters designed for noise make it worse.
+
+<svg viewBox="0 0 880 380" role="img" aria-labelledby="mp-t mp-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="mp-t">Random error versus multipath, and why averaging helps one and not the other</title>
+  <desc id="mp-d">Two error patterns around a responder standing still between tall buildings. Random error scatters roughly symmetrically about the true position, so averaging many fixes converges on it — more samples give a better answer. Multipath error is a reflected signal, so every fix is displaced in the same direction, away from the reflecting facade: the scatter is tight, the reported accuracy is optimistic, and averaging converges confidently on a position twenty metres inside the building. The distinguishing signature is that multipath produces low reported dilution of precision with a persistent directional bias, which is exactly the combination a naive quality filter reads as high-quality data.</desc>
+  <rect x="0" y="0" width="880" height="380" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">averaging fixes one of these and entrenches the other</text>
+  <text x="80" y="80" font-size="11" font-weight="700" fill="currentColor">random error</text>
+  <text x="520" y="80" font-size="11" font-weight="700" fill="var(--ember-text)">multipath</text>
+  <circle cx="220" cy="200" r="9" fill="var(--crimson)"/>
+  <text x="150" y="180" font-size="10" font-weight="700" fill="var(--crimson-deep)">true position</text>
+  <g fill="var(--petal)" stroke="var(--crimson-deep)" stroke-width="1.2">
+    <circle cx="196" cy="176" r="5"/><circle cx="248" cy="184" r="5"/><circle cx="204" cy="228" r="5"/>
+    <circle cx="252" cy="222" r="5"/><circle cx="226" cy="164" r="5"/><circle cx="184" cy="208" r="5"/>
+    <circle cx="240" cy="206" r="5"/><circle cx="212" cy="240" r="5"/>
+  </g>
+  <text x="120" y="286" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">the mean converges on the truth</text>
+  <text x="120" y="304" font-size="10" fill="currentColor">more samples, better answer</text>
+  <rect x="620" y="120" width="30" height="180" fill="var(--muted)" opacity="0.3"/>
+  <text x="656" y="140" font-size="10" font-weight="700" fill="var(--muted)">facade</text>
+  <circle cx="560" cy="200" r="9" fill="var(--crimson)"/>
+  <text x="486" y="180" font-size="10" font-weight="700" fill="var(--crimson-deep)">true position</text>
+  <g fill="var(--ember)" stroke="var(--ember)" stroke-width="1.2">
+    <circle cx="502" cy="196" r="5"/><circle cx="508" cy="204" r="5"/><circle cx="498" cy="210" r="5"/>
+    <circle cx="512" cy="192" r="5"/><circle cx="504" cy="216" r="5"/><circle cx="496" cy="200" r="5"/>
+  </g>
+  <path d="M550 200 H516" fill="none" stroke="var(--ember)" stroke-width="1.6"/>
+  <path d="M516 200 l9 -5 M516 200 l9 5" fill="none" stroke="var(--ember)" stroke-width="1.6"/>
+  <text x="452" y="286" font-size="10.5" font-weight="700" fill="var(--ember-text)">tight scatter, optimistic accuracy</text>
+  <text x="452" y="304" font-size="10" fill="currentColor">the mean converges on a point 20 m inside a building</text>
+  <text x="8" y="348" font-size="10.5" fill="currentColor">Multipath signature: low reported dilution of precision plus a persistent directional bias —</text>
+  <text x="8" y="366" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">exactly what a naive quality filter reads as high-confidence data.</text>
+</svg>
+
+The two panels contain the same number of fixes and the right-hand one has a *tighter* spread, which is the trap. Every quality heuristic built on precision — averaging, discarding outliers, weighting by reported accuracy — treats the multipath cluster as the better data. The receiver agrees: with several reflected satellites in view, the geometric dilution of precision is genuinely low, and the accuracy figure it reports is a statement about internal consistency rather than about truth.
+
+So the detector cannot be built on scatter. It has to be built on the thing scatter does not capture: a persistent offset in a consistent direction, which shows up as a bias between a fix sequence and a motion model, or between GNSS and dead reckoning. A responder walking a straight corridor whose GNSS track is straight but displaced ten metres laterally is the signature to look for, and it requires comparing against something other than the fixes themselves.
+
+The practical consequences are two. Do not average across a suspected multipath interval — averaging is what converts a recoverable per-fix error into a confidently wrong single position. And carry the environment as an attribute on the fix rather than inferring it later: a receiver that reports satellite count and elevation angles gives enough to flag urban-canyon conditions at collection time, when the flag can still travel with the data.
+
 ## Production Python Implementation
 
 The routine below carries the full resolution path: quality gating, velocity-based multipath rejection, last-known-good fallback with confidence scoring, structured logging, explicit exception handling, and an immutable audit record per override. Thresholds are parameters, not literals, so they can be committed and versioned alongside the [Coordinate Reference System standard for disaster zones](https://www.incidentgis.com/core-emergency-gis-architecture-data-standards/coordinate-reference-systems-for-disaster-zones/) that the rest of the pipeline enforces. Senior-engineer assumptions apply: `pyproj` and `geopandas` are available, and velocity here uses a haversine approximation rather than a projected metric to stay CRS-agnostic at the edge.
@@ -328,6 +368,33 @@ class UrbanCanyonCorrector:
 ```
 
 The `audit_log` is the load-bearing output here. Persisting it as a committed, content-hashed artifact lets a post-incident reviewer replay every override and confirm that no responder location was fabricated — the reproducibility guarantee that [Version Control for Spatial Workflows](https://www.incidentgis.com/python-toolchains-for-public-safety-gis/version-control-for-spatial-workflows/) is built to provide.
+
+Once multipath is detected the question becomes what to publish, and the honest answer depends on what the position is for.
+
+<svg viewBox="0 0 880 360" role="img" aria-labelledby="dp-t dp-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="dp-t">Three dispositions for a suspect fix, by what the position is used for</title>
+  <desc id="dp-d">A fix flagged as multipath-affected can be handled three ways depending on the consumer. For unit tracking on the common operating picture, publish it with an inflated uncertainty radius: a supervisor needs to know roughly where the crew is, and a twenty-metre circle communicates that honestly. For map-matching to a road segment, snap it to the nearest segment and record the snap, because a road network constrains the position far more tightly than the fix does. For anything positional that will be recorded as evidence — a damage assessment point, a hazmat sample location — withhold it and request a deliberate observation, because an inflated radius is not good enough for a record that will be read years later without its context.</desc>
+  <rect x="0" y="0" width="880" height="360" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">what to do with a suspect fix depends on what the position is for</text>
+  <rect x="40" y="76" width="800" height="72" rx="9" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.6"/>
+  <text x="60" y="102" font-size="11" font-weight="700" fill="currentColor">unit tracking on the operating picture</text>
+  <text x="60" y="124" font-size="10" fill="currentColor">publish with an inflated uncertainty radius — a supervisor needs roughly where the crew is,</text>
+  <text x="60" y="140" font-size="10" fill="currentColor">and a 20 m circle says that honestly where a bare point does not</text>
+  <rect x="40" y="164" width="800" height="72" rx="9" fill="var(--petal)" stroke="var(--crimson)" stroke-width="1.6"/>
+  <text x="60" y="190" font-size="11" font-weight="700" fill="currentColor">map-matching to a road segment</text>
+  <text x="60" y="212" font-size="10" fill="currentColor">snap to the nearest segment and record that it was snapped — the road network constrains the</text>
+  <text x="60" y="228" font-size="10" fill="currentColor">position far more tightly than the fix does, so the network is the better evidence</text>
+  <rect x="40" y="252" width="800" height="72" rx="9" fill="var(--cream)" stroke="var(--ember)" stroke-width="2"/>
+  <text x="60" y="278" font-size="11" font-weight="700" fill="var(--ember-text)">a position that becomes a record</text>
+  <text x="60" y="300" font-size="10" fill="currentColor">damage assessment, hazmat sample, evidence point — withhold and request a deliberate observation;</text>
+  <text x="60" y="316" font-size="10" fill="currentColor">an inflated radius is not enough for something that will be read years later without its context</text>
+</svg>
+
+The middle row is the one that recovers the most value and is most often skipped. A responder in an urban canyon is almost always on a street, and a road centreline is a far stronger constraint than a GNSS fix with reflected satellites — snapping to the nearest segment typically lands within a couple of metres of truth, an order of magnitude better than the raw fix. The requirement is only that the snap be recorded, so a later reader can tell a measured position from an inferred one.
+
+The bottom row is where the discipline has to hold against pressure. A damage-assessment point captured during an incident becomes, months later, the basis of a claim, and it will be read by somebody who has no idea the fix was taken between two eight-storey buildings. There is no uncertainty annotation that reliably survives that journey — it gets dropped in an export, a join, or a summary — so the only safe handling is not to record the position at all until it can be observed properly.
+
+That distinction is worth encoding in the schema rather than in guidance. Give evidence-grade positions their own type with a required accuracy field and a maximum permitted value, so a suspect fix cannot be written into that table at all. A constraint the database enforces is one that survives the pressure of the incident; a convention in a runbook is not.
 
 ## Validation Checklist
 

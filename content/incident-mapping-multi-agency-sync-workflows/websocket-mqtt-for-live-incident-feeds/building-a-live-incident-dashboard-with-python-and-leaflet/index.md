@@ -115,6 +115,42 @@ Work the dashboard from the definitive real-time path down to a safe default tha
 3. **Deduplicate before render.** Hash on `incident_id` plus `sequence_number` so an at-least-once MQTT redelivery (QoS 1) does not paint a duplicate marker or resurrect a deleted one.
 4. **Safe default with an audit flag.** If the WebSocket drops, run exponential-backoff reconnect while transparently switching to a delta-polling HTTP endpoint, raise a visible "DEGRADED — polling fallback" banner, and stamp the served snapshot with `fallback_mode=true` and a sync timestamp. A flagged, visibly-degraded map is recoverable; a silently frozen one is not.
 
+The first two tiers are usually described as separate optimisations. They are really one decision — how many times per frame the renderer is entered — and the frame budget makes the size of it concrete.
+
+<svg viewBox="0 0 880 380" role="img" aria-labelledby="fb-t fb-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="fb-t">Where a 16.7 millisecond frame goes at 40 incident updates per second</title>
+  <desc id="fb-d">One display frame is 16.7 milliseconds at 60 hertz. Rendering each of 40 incoming updates as it arrives costs about 0.9 milliseconds of DOM marker work apiece, or 36 milliseconds per frame — more than double the budget, so the map drops to roughly 27 frames per second and input feels sticky. Coalescing the same 40 updates into one flush per animation frame and drawing them to a canvas costs about 2.1 milliseconds of buffer merge plus 3.4 milliseconds of canvas draw, totalling 5.5 milliseconds and leaving 11.2 milliseconds of headroom. The number of updates is identical; what changes is how many times the renderer is entered.</desc>
+  <rect x="0" y="0" width="880" height="380" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">one 16.7 ms frame at 60 Hz, carrying 40 incident updates</text>
+  <path d="M200 76 V330" fill="none" stroke="var(--crimson-deep)" stroke-width="1.5"/>
+  <path d="M540 76 V330" fill="none" stroke="var(--crimson-deep)" stroke-width="1.8" stroke-dasharray="5 4"/>
+  <text x="548" y="70" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">16.7 ms budget</text>
+  <text x="8" y="118" font-size="10.5" font-weight="700" fill="currentColor">render on arrival</text>
+  <text x="8" y="134" font-size="9.5" fill="var(--muted)">40 × DOM marker update</text>
+  <rect x="200" y="96" width="620" height="46" rx="6" fill="var(--petal)" stroke="var(--ember)" stroke-width="2.4"/>
+  <text x="216" y="124" font-size="10.5" font-weight="700" fill="currentColor">36.0 ms — 2.2× over budget</text>
+  <text x="640" y="170" font-size="10.5" font-weight="700" fill="var(--ember-text)">map settles at ~27 fps, input feels sticky</text>
+  <text x="8" y="238" font-size="10.5" font-weight="700" fill="currentColor">coalesce to one flush</text>
+  <text x="8" y="254" font-size="9.5" fill="var(--muted)">buffer merge + canvas draw</text>
+  <rect x="200" y="216" width="42.8" height="46" rx="6" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="1.5"/>
+  <rect x="242.8" y="216" width="69.4" height="46" rx="6" fill="var(--petal)" stroke="var(--crimson-deep)" stroke-width="1.5"/>
+  <text x="330" y="244" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">5.5 ms — 11.2 ms of headroom left</text>
+  <g font-size="10" text-anchor="middle" fill="var(--muted)">
+    <text x="200" y="352">0 ms</text><text x="370" y="352">8.4</text><text x="540" y="352">16.7</text>
+    <text x="710" y="352">25</text><text x="820" y="352">33 ms</text>
+  </g>
+  <circle cx="216" cy="374" r="6" fill="var(--crimson)"/>
+  <text x="230" y="378" font-size="10" fill="currentColor">buffer merge 2.1 ms</text>
+  <circle cx="400" cy="374" r="6" fill="var(--petal)"/>
+  <text x="414" y="378" font-size="10" fill="currentColor">canvas draw 3.4 ms</text>
+</svg>
+
+Forty updates a second is not an unusual rate during a surge; it is a moderate one. Handling each as it arrives means forty separate marker mutations, forty style recalculations and forty opportunities for layout, and at roughly 0.9 ms apiece the frame is over budget before anything else on the page has run. The browser does the only thing it can and drops frames, which the operator experiences not as a slow map but as an unresponsive one — pans stutter, and clicks land late.
+
+Coalescing is what removes the multiplier. The same forty updates are merged into a buffer keyed by incident identifier, so an incident that moved three times in that frame is drawn once with its final position, and the whole set is painted in a single canvas pass. Total cost 5.5 ms, two thirds of the budget still free, and — the part that matters operationally — the cost now scales with the number of *distinct incidents on screen* rather than with the message rate. A doubling of traffic that touches the same incidents costs almost nothing extra.
+
+The canvas choice follows from the same reasoning rather than from raw speed. A few hundred DOM markers is survivable; the problem is that each one is an independently laid-out element, so the cost is per-marker per-frame whether it changed or not. A canvas has one element and redraws exactly what you tell it to. The trade is that hit-testing and accessibility become your responsibility, which is why the marker layer stays DOM for the small set of selected or alerting incidents and the canvas carries the bulk.
+
 ## Production Python Implementation
 
 The broker below ingests validated telemetry, tags each feature with a `diff_type` so the client can apply minimal updates, and exposes a delta-poll fallback for clients that lose the socket. It uses full type hints, explicit exception boundaries, structured logging (no `print`), and emits an audit record whenever a payload is quarantined or a client is served in degraded mode. It assumes coordinates have already passed [real-time geocoding and location normalization](https://www.incidentgis.com/incident-mapping-multi-agency-sync-workflows/real-time-geocoding-location-normalization/) and conform to the broker's GeoJSON schema.
@@ -280,6 +316,44 @@ function onMessage(feature) {
   if (!frameQueued) { frameQueued = true; requestAnimationFrame(flush); }
 }
 ```
+
+Tier four is the tier that gets built last and matters most, because a console has no natural way to distinguish an incident that is not changing from a feed that is not arriving.
+
+<svg viewBox="0 0 880 360" role="img" aria-labelledby="sb-t sb-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="sb-t">What the console shows while its WebSocket is down</title>
+  <desc id="sb-d">A timeline of a console losing its WebSocket for 48 seconds. Without a staleness indicator, the map keeps rendering the last state it received and nothing on screen changes, so an operator reading a perimeter cannot tell a quiet incident from a dead connection — the two look identical. With the indicator, the moment the socket drops the console stamps every layer with the age of its last update and shows a persistent banner, so the same operator sees a map that is explicitly 48 seconds old. On reconnect the console requests a snapshot rather than resuming the stream, because the messages that passed during the gap were never queued for it and resuming would leave the map permanently missing them.</desc>
+  <rect x="0" y="0" width="880" height="360" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">a quiet incident and a dead socket look exactly the same on screen</text>
+  <path d="M300 80 H660 V300 H300 Z" fill="var(--ember)" opacity="0.14"/>
+  <text x="312" y="74" font-size="10" font-weight="700" fill="var(--ember-text)">socket down · 48 s</text>
+  <path d="M140 130 H820" fill="none" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <text x="8" y="126" font-size="10.5" font-weight="700" fill="currentColor">no indicator</text>
+  <text x="8" y="142" font-size="9.5" fill="var(--muted)">last state kept on screen</text>
+  <g fill="var(--crimson)">
+    <circle cx="170" cy="130" r="5"/><circle cx="215" cy="130" r="5"/><circle cx="260" cy="130" r="5"/>
+    <circle cx="700" cy="130" r="5"/><circle cx="745" cy="130" r="5"/><circle cx="790" cy="130" r="5"/>
+  </g>
+  <text x="330" y="166" font-size="11" font-weight="700" fill="var(--ember-text)">operator sees a map that has simply stopped changing</text>
+  <path d="M140 250 H820" fill="none" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <text x="8" y="246" font-size="10.5" font-weight="700" fill="currentColor">with indicator</text>
+  <text x="8" y="262" font-size="9.5" fill="var(--muted)">per-layer age + banner</text>
+  <g fill="var(--crimson)">
+    <circle cx="170" cy="250" r="5"/><circle cx="215" cy="250" r="5"/><circle cx="260" cy="250" r="5"/>
+    <circle cx="700" cy="250" r="5"/><circle cx="745" cy="250" r="5"/><circle cx="790" cy="250" r="5"/>
+  </g>
+  <rect x="316" y="228" width="330" height="44" rx="7" fill="var(--petal)" stroke="var(--ember)" stroke-width="2"/>
+  <text x="332" y="246" font-size="10.5" font-weight="700" fill="currentColor">LIVE FEED LOST — showing 48 s old</text>
+  <text x="332" y="264" font-size="9.5" fill="currentColor">reconnecting · snapshot will be requested</text>
+  <path d="M660 250 H700" fill="none" stroke="var(--crimson)" stroke-width="2.4"/>
+  <text x="608" y="300" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">snapshot, not resume</text>
+  <text x="8" y="336" font-size="10.5" fill="currentColor">Resuming the stream would leave the map permanently missing whatever passed during the gap.</text>
+</svg>
+
+This is the same class of failure as a stale offline cache, arriving through a different door. The map is drawn, the markers are in place, the styling is correct, and every pixel of it is 48 seconds old. An operations chief reading a perimeter has no cue at all — a wildfire perimeter genuinely does go a minute without an update, so "nothing has changed" is a completely plausible reading of a dead socket.
+
+Two behaviours fix it and both are cheap. Stamp every layer with the age of its last update and surface that age in the legend, so the reading is always available rather than only during a failure. And show a persistent, non-dismissable banner while the socket is down — not a toast that fades, because the operator who needs it may have looked away for the whole thirty seconds it was visible.
+
+The reconnect behaviour is the part most often got wrong. Resuming the stream is the natural implementation and it is incorrect here: a WebSocket console is not a persistent MQTT session, so nothing was queued for it, and resuming means the incidents that changed during the gap keep their pre-gap positions until they happen to change again. Request a full snapshot on reconnect and reconcile against it. It costs one larger message at the moment connectivity has just been restored, and it is the only way the console's state converges with the server's rather than merely resuming alongside it.
 
 ## Validation Checklist
 

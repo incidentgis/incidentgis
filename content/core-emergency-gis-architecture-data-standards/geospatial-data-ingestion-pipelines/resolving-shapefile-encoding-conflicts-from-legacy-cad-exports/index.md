@@ -152,6 +152,55 @@ The visible symptom is mojibake. UTF-8 bytes read as Windows-1252 turn `Peña` i
   <text x="450" y="430" font-size="10" text-anchor="middle" fill="currentColor" opacity="0.8">Original bytes are never overwritten — the repaired copy is a new artifact with its own provenance.</text>
 </svg>
 
+A concrete run of bytes makes the failure mode sharper than any description of it.
+
+<svg viewBox="0 0 880 380" role="img" aria-labelledby="en-t en-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="en-t">One run of bytes from a legacy CAD export, decoded three ways</title>
+  <desc id="en-d">Eight bytes from a DBF attribute field — 43 61 F1 F3 6E 20 52 64 — decoded under three codepages. Read as cp1252 or latin-1 they spell Cañón Rd, which is what the CAD system wrote. Read as cp437 they spell Ca plus two mathematical symbols plus n Rd: still printable, still plausible-looking text, and silently wrong. Read as UTF-8 they are not a valid sequence at all, so the decode either raises an error or, with errors set to replace, produces two replacement characters. Only the UTF-8 attempt fails loudly; the cp437 reading is the dangerous one, because a street name that renders as text passes every check a pipeline is likely to run.</desc>
+  <rect x="0" y="0" width="880" height="380" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">the same eight bytes, three codepages</text>
+  <text x="200" y="84" font-size="10.5" fill="var(--muted)">DBF attribute field, raw bytes</text>
+  <text x="200" y="112" font-size="14" font-weight="700" font-family="var(--font-mono)" fill="currentColor">43 61 F1 F3 6E 20 52 64</text>
+  <rect x="200" y="150" width="640" height="46" rx="7" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.6"/>
+  <text x="8" y="178" font-size="10.5" font-weight="700" fill="currentColor">cp1252 / latin-1</text>
+  <text x="216" y="178" font-size="13" font-weight="700" fill="currentColor">Cañón Rd</text>
+  <text x="470" y="178" font-size="10" font-weight="700" fill="var(--crimson-deep)">correct — this is what the CAD system wrote</text>
+  <rect x="200" y="210" width="640" height="46" rx="7" fill="var(--cream)" stroke="var(--ember)" stroke-width="1.6"/>
+  <text x="8" y="238" font-size="10.5" font-weight="700" fill="currentColor">cp437</text>
+  <text x="216" y="238" font-size="13" font-weight="700" fill="currentColor">Ca±≤n Rd</text>
+  <text x="470" y="238" font-size="10" font-weight="700" fill="var(--ember-text)">plausible text, silently wrong</text>
+  <rect x="200" y="270" width="640" height="46" rx="7" fill="var(--cream)" stroke="var(--ember)" stroke-width="1.6"/>
+  <text x="8" y="298" font-size="10.5" font-weight="700" fill="currentColor">utf-8</text>
+  <text x="216" y="298" font-size="13" font-weight="700" fill="currentColor">UnicodeDecodeError</text>
+  <text x="470" y="298" font-size="10" font-weight="700" fill="var(--ember-text)">loud failure — or Ca��n Rd with errors='replace'</text>
+  <text x="8" y="356" font-size="10.5" fill="currentColor">The dangerous reading is the one that produces printable text — nothing downstream can tell it from a real street name.</text>
+</svg>
+
+Note which of the three readings is dangerous. The UTF-8 attempt fails loudly — a `UnicodeDecodeError` stops the load, somebody investigates, and the encoding gets pinned. That is the *good* outcome. The cp437 reading is the one that hurts: it produces printable characters, so the record loads, the attribute table populates, and a street name reaches the Common Operating Picture spelled with mathematical symbols. Nothing downstream distinguishes that from a genuinely unusual street name, and the only person who would notice is a dispatcher reading it aloud over the radio.
+
+Which is why the resolution order below is about *where the declaration lives* rather than about which codepage to try.
+
+<svg viewBox="0 0 880 360" role="img" aria-labelledby="pr-t pr-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="pr-t">Where a shapefile can declare its encoding, and what to do when none of them does</title>
+  <desc id="pr-d">Three places carry an encoding declaration, in decreasing order of trust. A cpg sidecar file names the codepage explicitly and is authoritative when present. The DBF header's language driver identifier byte encodes a codepage numerically, is present in most files, and is frequently wrong because writers copy it from a template. If neither is usable, the reader must guess, and the correct guess is not a codepage but a procedure: decode strictly under the jurisdiction's expected codepage, and on failure quarantine the file rather than falling back to errors equals replace. Falling back turns a loud decode failure into printable mojibake, which removes the only signal that anything went wrong.</desc>
+  <rect x="0" y="0" width="880" height="360" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">three places to look, in this order — and what to do when all three fail</text>
+  <rect x="60" y="76" width="760" height="62" rx="9" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="1.8"/>
+  <text x="80" y="102" font-size="12" font-weight="700" fill="var(--cream)">1 · the .cpg sidecar</text>
+  <text x="80" y="122" font-size="10.5" fill="var(--cream)">names the codepage in plain text · authoritative when present · absent from most legacy exports</text>
+  <rect x="60" y="152" width="760" height="62" rx="9" fill="var(--petal)" stroke="var(--crimson)" stroke-width="1.8"/>
+  <text x="80" y="178" font-size="12" font-weight="700" fill="var(--crimson-deep)">2 · the DBF language driver ID byte</text>
+  <text x="80" y="198" font-size="10.5" fill="currentColor">present in nearly every file · frequently copied from a template and therefore wrong · verify, do not trust</text>
+  <rect x="60" y="228" width="760" height="62" rx="9" fill="var(--cream)" stroke="var(--ember)" stroke-width="2" stroke-dasharray="6 4"/>
+  <text x="80" y="254" font-size="12" font-weight="700" fill="var(--ember-text)">3 · neither — decode strictly, then quarantine</text>
+  <text x="80" y="274" font-size="10.5" fill="currentColor">the jurisdiction's expected codepage, errors=&apos;strict&apos; · never errors=&apos;replace&apos;</text>
+  <text x="8" y="332" font-size="10.5" fill="currentColor">errors=&apos;replace&apos; converts the one loud failure mode into the silent one — it is the single worst line in this pipeline.</text>
+</svg>
+
+The last row is the one that gets implemented wrong most often, and the specific mistake is `errors='replace'`. It is a reasonable default in most software: better a slightly corrupted string than a crashed job. Here it is precisely backwards. A strict decode that raises is the only remaining mechanism that can tell you the encoding was wrong; replacing the offending bytes with U+FFFD converts a loud, diagnosable, one-line failure into a silently mangled attribute that will be discovered — if at all — weeks later by somebody trying to match it against a road centreline.
+
+Quarantine the file instead. A legacy CAD export whose encoding cannot be determined is not an emergency: the authoring agency knows what their system writes, the answer is a one-line `.cpg` file, and the cost of asking is a phone call. The cost of guessing is a street name nobody can search for.
+
 ## Tiered Resolution Strategy
 
 Work the problem in ordered tiers, from the definitive recovery down to a safe default that is always flagged. The guiding rule: never overwrite the source in place and never rewrite text silently — the original DBF is the primary evidence, and an unrecorded correction is indistinguishable from data tampering.

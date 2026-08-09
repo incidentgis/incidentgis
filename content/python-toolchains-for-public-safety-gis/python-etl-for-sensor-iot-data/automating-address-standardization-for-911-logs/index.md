@@ -89,6 +89,47 @@ Resolve each raw string through an ordered fallback chain, descending from the d
 4. **Non-routable detection.** Flag PO Box, rural-route, and general-delivery artifacts that have no point geometry; these can never satisfy a spatial join and must be diverted, not coerced.
 5. **Safe default with audit flag.** Anything that survives to here is emitted with a low confidence score and an explicit audit flag, routed to a manual QA queue. The record is preserved and traceable — never dropped, never silently "fixed".
 
+The reason standardisation earns its place ahead of geocoding is arithmetic: it collapses the number of distinct strings the geocoder ever sees.
+
+<svg viewBox="0 0 880 380" role="img" aria-labelledby="as-t as-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="as-t">Seven ways one address arrives, and what each normalisation step removes</title>
+  <desc id="as-d">One physical address arrives from dispatch in seven textual variants differing in case, abbreviation, punctuation, directional placement and unit designator. Case folding and whitespace collapse merges two of them. Expanding standard abbreviations for street types and directionals merges three more. Normalising the unit designator merges the last. The seven distinct strings become one, which means the geocoder is called once instead of seven times, the response cache hits on every subsequent occurrence, and — most importantly — the seven records now share a key that lets duplicate-incident detection see them as the same place.</desc>
+  <rect x="0" y="0" width="880" height="380" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">one physical address, seven strings from dispatch</text>
+  <g font-size="10.5" font-family="var(--font-mono)" fill="currentColor">
+    <text x="40" y="82">1420 N Main St Apt 3</text>
+    <text x="40" y="104">1420 north main street apt 3</text>
+    <text x="40" y="126">1420 N. MAIN ST., APT 3</text>
+    <text x="40" y="148">1420 N Main Street #3</text>
+    <text x="40" y="170">1420 Main St N Apt 3</text>
+    <text x="40" y="192">1420  N Main St  Apt3</text>
+    <text x="40" y="214">1420 N Main St Unit 3</text>
+  </g>
+  <path d="M340 140 H420" fill="none" stroke="var(--crimson)" stroke-width="2"/>
+  <path d="M420 140 l-9 -5 M420 140 l-9 5" fill="none" stroke="var(--crimson)" stroke-width="2"/>
+  <rect x="430" y="96" width="410" height="88" rx="9" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.8"/>
+  <text x="450" y="122" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">case fold · collapse whitespace</text>
+  <text x="450" y="142" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">expand ST, N, APT · normalise unit designator</text>
+  <text x="450" y="166" font-size="10.5" font-weight="700" font-family="var(--font-mono)" fill="currentColor">1420 NORTH MAIN STREET UNIT 3</text>
+  <rect x="40" y="246" width="250" height="88" rx="9" fill="var(--cream)" stroke="var(--ember)" stroke-width="1.8"/>
+  <text x="58" y="270" font-size="10.5" font-weight="700" fill="var(--ember-text)">without standardisation</text>
+  <text x="58" y="292" font-size="10" fill="currentColor">7 geocoder calls, 0 cache hits</text>
+  <text x="58" y="310" font-size="10" fill="currentColor">7 records that never match</text>
+  <text x="58" y="326" font-size="10" fill="currentColor">each other</text>
+  <rect x="330" y="246" width="250" height="88" rx="9" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.8"/>
+  <text x="348" y="270" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">with standardisation</text>
+  <text x="348" y="292" font-size="10" fill="currentColor">1 geocoder call, 6 cache hits</text>
+  <text x="348" y="310" font-size="10" fill="currentColor">7 records sharing one key</text>
+  <rect x="620" y="246" width="220" height="88" rx="9" fill="var(--petal)" stroke="var(--crimson)" stroke-width="1.6"/>
+  <text x="638" y="270" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">the real payoff</text>
+  <text x="638" y="292" font-size="10" fill="currentColor">duplicate detection can</text>
+  <text x="638" y="310" font-size="10" fill="currentColor">now see these as one place</text>
+</svg>
+
+The geocoder-call saving is the obvious benefit and the smaller one. The saving that matters operationally is on the right: seven callers reporting the same structure fire produce seven records that, unstandardised, share no key at all. Duplicate detection working on address strings sees seven distinct addresses; working on geocoded coordinates it sees seven points scattered by whatever variance the geocoder introduced across seven slightly different inputs. Standardising first gives the deduplicator something exact to match on before it has to fall back to spatial proximity.
+
+Two rules keep the normaliser from causing harm. Never discard the original string — store it alongside the standardised form, because a normaliser that mangles an unusual address needs to be diagnosable, and because the verbatim text is what a dispatcher will read back over the radio. And keep the abbreviation table jurisdiction-specific rather than national: a directional convention or a street-type abbreviation that is unambiguous in one county collides with a real street name in another, and the failure is a silently rewritten address rather than an error.
+
 ## Production Python Implementation
 
 The routine below implements the full resolution path: chained parse, deterministic fallback, lookup normalization, non-routable flagging, structured logging, and an audit record emitted for every correction. It never raises out of the per-record path, so a single malformed string cannot halt the batch.
@@ -179,6 +220,39 @@ def standardize(raw: str, record_id: str) -> StandardizedAddress:
 ```
 
 Records with `flagged=False` and full confidence flow straight into MSAG reconciliation; everything else lands in the manual QA queue with its original string intact for replay. Because reconciliation is a spatial-join problem, drive it through the same metric-CRS and library-selection discipline established in [Geopandas vs PyShp for Field Operations](https://www.incidentgis.com/python-toolchains-for-public-safety-gis/geopandas-vs-pyshp-for-field-operations/) — match standardized addresses to road centerlines within a 15-metre threshold and reject any candidate that crosses a jurisdictional boundary.
+
+The one rule that keeps a standardiser safe is that it must never be the only copy of the address, and the reason is that its failures are asymmetric.
+
+<svg viewBox="0 0 880 360" role="img" aria-labelledby="ab-t ab-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="ab-t">Two ways a standardiser gets an address wrong, and what each costs</title>
+  <desc id="ab-d">A standardiser can fail in two directions. Under-normalising leaves two forms of one address distinct, so the geocoder is called twice and duplicate detection misses a pair — a visible cost, discovered when a second unit is dispatched, and self-correcting once someone extends the abbreviation table. Over-normalising rewrites a genuinely distinct address into a different one: an aggressive directional rule turns North Bend Road into N Bend Road and then matches it against Bend Road North, so two real addresses collapse into one and an incident is placed on the wrong street. That failure is invisible, because the resulting address is well-formed and geocodes successfully. Keeping the verbatim string alongside the standardised form is what makes the second kind recoverable at all.</desc>
+  <rect x="0" y="0" width="880" height="360" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">the two failure directions are not equally expensive</text>
+  <rect x="40" y="76" width="390" height="196" rx="9" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.6"/>
+  <rect x="460" y="76" width="380" height="196" rx="9" fill="var(--cream)" stroke="var(--ember)" stroke-width="2"/>
+  <text x="60" y="104" font-size="11.5" font-weight="700" fill="var(--crimson-deep)">under-normalised</text>
+  <text x="480" y="104" font-size="11.5" font-weight="700" fill="var(--ember-text)">over-normalised</text>
+  <text x="60" y="132" font-size="10.5" font-family="var(--font-mono)" fill="currentColor">1420 N Main St</text>
+  <text x="60" y="150" font-size="10.5" font-family="var(--font-mono)" fill="currentColor">1420 North Main Street</text>
+  <text x="480" y="132" font-size="10.5" font-family="var(--font-mono)" fill="currentColor">North Bend Road</text>
+  <text x="480" y="150" font-size="10.5" font-family="var(--font-mono)" fill="currentColor">Bend Road North</text>
+  <text x="60" y="180" font-size="10" fill="currentColor">stay distinct · two geocoder calls</text>
+  <text x="60" y="198" font-size="10" fill="currentColor">duplicate detection misses the pair</text>
+  <text x="480" y="180" font-size="10" fill="currentColor">both become N BEND ROAD</text>
+  <text x="480" y="198" font-size="10" fill="currentColor">two real streets collapse into one</text>
+  <text x="60" y="230" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">visible: a second unit arrives</text>
+  <text x="60" y="250" font-size="10" fill="currentColor">self-correcting once the table is extended</text>
+  <text x="480" y="230" font-size="10.5" font-weight="700" fill="var(--ember-text)">invisible: the result is well-formed</text>
+  <text x="480" y="250" font-size="10" fill="currentColor">it geocodes successfully, to the wrong street</text>
+  <rect x="40" y="292" width="800" height="46" rx="9" fill="var(--petal)" stroke="var(--crimson)" stroke-width="1.6"/>
+  <text x="60" y="320" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">so: prefer under-normalising, and always keep the verbatim string — it is the only way back from the right-hand column</text>
+</svg>
+
+Under-normalising is a cost you can see and pay down. Two variants of one address survive as two records, a second unit gets dispatched, somebody notices, and the abbreviation table grows by one entry. Nothing is lost that cannot be recovered, and the system gets better each time it happens.
+
+Over-normalising produces a well-formed address that is not the one dispatch received. It geocodes cleanly, lands on a real street, and appears on the map next to every correctly-handled incident. There is no downstream check that can catch it, because every property a valid address has, this one has.
+
+That asymmetry is the whole argument for a conservative abbreviation table and for jurisdiction-scoped rules. A directional-normalisation rule that is safe in a county with no street named "North" is unsafe in one that has three, and the failure is not a rejected record but a silently relocated incident. When in doubt, leave the string alone and let the duplicate detector do more work — its errors are visible and this one is not.
 
 ## Validation Checklist
 

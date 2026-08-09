@@ -1,9 +1,25 @@
 /* ==========================================================================
    IncidentGIS — Passionate Red theme
    Crimson, petal pink, deep black, fiery accents
+
+   THEMING CONTRACT — read before changing a colour anywhere in this file.
+   Every colour is a custom property defined on :root. The dark theme at the
+   bottom of this file redefines the SAME token names and nothing else, so a
+   rule written against a token flips for free. Two consequences:
+
+     1. Never write a raw hex inside a rule. Add a token instead — a literal
+        colour silently stays light-on-dark and no gate will tell you.
+     2. The inline SVG diagrams in content/ are drawn against these same
+        tokens (var(--crimson), var(--cream), var(--ink), var(--muted)…), so
+        the token flip recolours every diagram interior too. Token PAIRS are
+        what make that work: --crimson/--cream and --crimson-deep/--cream are
+        used as fill/text pairs in the diagrams, and each pair inverts
+        together, so contrast is preserved in both directions.
    ========================================================================== */
 
 :root {
+  color-scheme: light;
+
   --crimson:        #c8102e;
   --crimson-deep:   #7a0a1f;
   --crimson-bright: #e02244;
@@ -25,6 +41,30 @@
   --code-border:    #f2d3d8;
   --inline-bg:      #ffe9ed;
   --inline-fg:      #7a0a1f;
+
+  /* Surfaces that were literal hexes before the dark theme existed */
+  --surface-hi:     #ffffff;
+  --header-bg:      rgba(255, 245, 245, 0.88);
+  --header-sheen:   rgba(255, 255, 255, 0.6);
+  --nav-bg:         rgba(255, 245, 245, 0.98);
+  --code-head:      #ffeef0;
+  --th-bg:          #ffe1e6;
+  --row-alt:        #fff9f9;
+  --row-hover:      #fff0f2;
+  --footer-far:     #fbe6ea;
+  --on-fire:        #4a1300;
+  --ember-text:     #b3350f;
+  --ok-bg:          #f5fff7;
+  --ok-fg:          #075d2a;
+  --ok-line:        #b7e8c5;
+
+  /* Syntax highlighting */
+  --tok-comment:    #723d44;
+  --tok-string:     #1c6a3b;
+  --tok-operator:   #b14a00;
+  --tok-function:   #9b1d6a;
+  --tok-variable:   #ad4900;
+
   --shadow-sm:      0 1px 2px rgba(122, 10, 31, 0.06), 0 2px 6px rgba(122, 10, 31, 0.04);
   --shadow-md:      0 4px 14px rgba(122, 10, 31, 0.10), 0 1px 3px rgba(122, 10, 31, 0.06);
   --shadow-lg:      0 14px 40px rgba(122, 10, 31, 0.14), 0 4px 10px rgba(122, 10, 31, 0.08);
@@ -134,11 +174,11 @@ a:hover, a:focus-visible {
   position: sticky;
   top: 0;
   z-index: 50;
-  background: rgba(255, 245, 245, 0.88);
+  background: var(--header-bg);
   backdrop-filter: saturate(140%) blur(10px);
   -webkit-backdrop-filter: saturate(140%) blur(10px);
   border-bottom: 1px solid var(--line);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.6) inset, var(--shadow-sm);
+  box-shadow: 0 1px 0 var(--header-sheen) inset, var(--shadow-sm);
 }
 
 .site-header__inner {
@@ -246,7 +286,7 @@ a:hover, a:focus-visible {
     align-items: stretch;
     gap: 0;
     padding: 12px clamp(16px, 4vw, 40px) 18px;
-    background: rgba(255, 245, 245, 0.98);
+    background: var(--nav-bg);
     backdrop-filter: saturate(140%) blur(10px);
     border-bottom: 1px solid var(--line);
     box-shadow: var(--shadow-md);
@@ -391,7 +431,7 @@ a:hover, a:focus-visible {
   color: var(--cream);
   border-color: rgba(255, 255, 255, 0.3);
 }
-.cta--ember .cta__icon { background: linear-gradient(135deg, var(--ember-glow), var(--fire)); color: #4a1300; }
+.cta--ember .cta__icon { background: linear-gradient(135deg, var(--ember-glow), var(--fire)); color: var(--on-fire); }
 .cta--rose .cta__icon { background: linear-gradient(135deg, var(--rose), var(--petal)); color: var(--crimson-deep); }
 .cta--crimson .cta__icon { background: linear-gradient(135deg, var(--crimson), var(--ember)); color: var(--cream); }
 
@@ -456,7 +496,7 @@ a:hover, a:focus-visible {
   color: var(--crimson-deep);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.6);
 }
-.section-card--ember .section-card__icon { background: linear-gradient(135deg, var(--ember-glow), var(--fire)); color: #4a1300; }
+.section-card--ember .section-card__icon { background: linear-gradient(135deg, var(--ember-glow), var(--fire)); color: var(--on-fire); }
 .section-card--rose .section-card__icon  { background: linear-gradient(135deg, var(--rose), var(--petal)); color: var(--crimson-deep); }
 
 .section-card h2 {
@@ -630,7 +670,7 @@ a:hover, a:focus-visible {
 .codeblock-header {
   display: flex; align-items: center; justify-content: space-between;
   padding: 8px 12px 6px 14px;
-  background: linear-gradient(180deg, #ffeef0, var(--code-bg));
+  background: linear-gradient(180deg, var(--code-head), var(--code-bg));
   border-bottom: 1px solid var(--code-border);
 }
 .codeblock-lang {
@@ -659,7 +699,7 @@ a:hover, a:focus-visible {
   transform: translateY(-1px);
 }
 .codeblock-copy.is-copied {
-  background: #f5fff7; color: #075d2a; border-color: #b7e8c5;
+  background: var(--ok-bg); color: var(--ok-fg); border-color: var(--ok-line);
 }
 
 .codeblock pre {
@@ -682,16 +722,16 @@ a:hover, a:focus-visible {
 }
 
 /* Prism light theme tuned to the palette */
-.token.comment, .token.prolog, .token.doctype, .token.cdata { color: #723d44; font-style: italic; }
+.token.comment, .token.prolog, .token.doctype, .token.cdata { color: var(--tok-comment); font-style: italic; }
 .token.punctuation { color: var(--ink-soft); }
 .token.namespace { opacity: 0.7; }
 .token.property, .token.tag, .token.boolean, .token.number, .token.constant,
 .token.symbol, .token.deleted { color: var(--crimson); }
-.token.selector, .token.attr-name, .token.string, .token.char, .token.builtin, .token.inserted { color: #1c6a3b; }
-.token.operator, .token.entity, .token.url, .language-css .token.string, .style .token.string { color: #b14a00; }
+.token.selector, .token.attr-name, .token.string, .token.char, .token.builtin, .token.inserted { color: var(--tok-string); }
+.token.operator, .token.entity, .token.url, .language-css .token.string, .style .token.string { color: var(--tok-operator); }
 .token.atrule, .token.attr-value, .token.keyword { color: var(--crimson-deep); font-weight: 600; }
-.token.function, .token.class-name { color: #9b1d6a; font-weight: 600; }
-.token.regex, .token.important, .token.variable { color: #ad4900; }
+.token.function, .token.class-name { color: var(--tok-function); font-weight: 600; }
+.token.regex, .token.important, .token.variable { color: var(--tok-variable); }
 .token.important, .token.bold { font-weight: 700; }
 .token.italic { font-style: italic; }
 
@@ -722,14 +762,14 @@ a:hover, a:focus-visible {
   border-bottom: 1px solid var(--line);
 }
 .table-wrap thead th {
-  background: linear-gradient(180deg, #ffe1e6, var(--petal-soft));
+  background: linear-gradient(180deg, var(--th-bg), var(--petal-soft));
   color: var(--crimson-deep);
   font-weight: 700;
   border-bottom: 1px solid var(--line-strong);
   white-space: nowrap;
 }
-.table-wrap tbody tr:nth-child(even) { background: #fff9f9; }
-.table-wrap tbody tr:hover { background: #fff0f2; }
+.table-wrap tbody tr:nth-child(even) { background: var(--row-alt); }
+.table-wrap tbody tr:hover { background: var(--row-hover); }
 .table-wrap tr:last-child td { border-bottom: 0; }
 
 /* ==========================================================================
@@ -800,7 +840,7 @@ ul.contains-task-list { padding-left: 0; }
   display: flex;
   align-items: center;
   gap: 12px;
-  background: linear-gradient(180deg, #fff, var(--cream));
+  background: linear-gradient(180deg, var(--surface-hi), var(--cream));
   transition: background .2s ease, color .2s ease;
 }
 .faq-accordion > summary::-webkit-details-marker { display: none; }
@@ -922,7 +962,7 @@ ul.contains-task-list { padding-left: 0; }
 
 .site-footer {
   margin-top: clamp(32px, 6vw, 80px);
-  background: linear-gradient(180deg, var(--blush), #fbe6ea);
+  background: linear-gradient(180deg, var(--blush), var(--footer-far));
   border-top: 1px solid var(--line);
   color: var(--ink-soft);
   flex-shrink: 0;
@@ -982,3 +1022,199 @@ ul.contains-task-list { padding-left: 0; }
 .site-footer__social-link:hover,
 .site-footer__social-link:focus-visible { color: var(--crimson); }
 .site-footer__social-link svg { flex: 0 0 auto; }
+
+/* ==========================================================================
+   Theme toggle control
+   ========================================================================== */
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px; height: 42px;
+  flex: 0 0 auto;
+  margin-left: 8px;
+  border-radius: 999px;
+  cursor: pointer;
+  color: var(--crimson-deep);
+  background: var(--petal-soft);
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--shadow-sm);
+  transition: background .2s ease, color .2s ease, border-color .2s ease, transform .2s ease;
+}
+.theme-toggle:hover, .theme-toggle:focus-visible {
+  color: var(--cream);
+  background: linear-gradient(135deg, var(--crimson), var(--ember));
+  border-color: transparent;
+  transform: translateY(-1px);
+}
+.theme-toggle svg { width: 20px; height: 20px; }
+
+/* Only one glyph is ever shown: sun in dark mode (click for light),
+   moon in light mode (click for dark). Both ship in the markup so the
+   control is correct before any JS runs. */
+.theme-toggle__sun  { display: none; }
+.theme-toggle__moon { display: block; }
+:root[data-theme="dark"] .theme-toggle__sun  { display: block; }
+:root[data-theme="dark"] .theme-toggle__moon { display: none; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .theme-toggle__sun  { display: block; }
+  :root:not([data-theme="light"]) .theme-toggle__moon { display: none; }
+}
+
+@media (max-width: 880px) {
+  .theme-toggle { margin-left: auto; margin-right: 4px; }
+  .nav-toggle { margin-left: 0; }
+}
+
+/* Diagram canvas: every inline diagram gets an explicit surface so its
+   labels keep contrast in BOTH themes rather than inheriting whatever the
+   page happens to be painted with. Matches the page in light mode, so this
+   is invisible there and load-bearing in dark. */
+.prose svg[role="img"] {
+  background: var(--blush);
+  border-radius: var(--radius-sm);
+}
+
+/* ==========================================================================
+   Dark theme
+   --------------------------------------------------------------------------
+   Redefines TOKENS ONLY. The two blocks below are deliberately identical:
+   the first wins when the reader has made an explicit choice, the second
+   when they have not and their OS asks for dark. Neither can beat an
+   explicit [data-theme="light"].
+
+   The inversion is pairwise, which is what keeps the content SVGs legible:
+     --cream / --blush   go from lightest to darkest  (fills, and text on brand fills)
+     --ink / --ink-soft  go from darkest to lightest  (body text, currentColor in diagrams)
+     --crimson*          lighten, so brand strokes and text read on a dark ground
+   ========================================================================== */
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --crimson:        #ff8095;
+  --crimson-deep:   #ffc9d2;
+  --crimson-bright: #ffa3b1;
+  --ember:          #ff7a4d;
+  --ember-glow:     #ffab86;
+  --fire:           #ffcf5c;
+  --petal:          #46212a;
+  --petal-soft:     #2e161c;
+  --rose:           #ff8f8f;
+  --blush:          #14080b;
+  --cream:          #211116;
+  --ink:            #ffeef0;
+  --ink-soft:       #f2d9dd;
+  --muted:          #cfa7ad;
+  --muted-soft:     #b18e94;
+  --line:           #3a2027;
+  --line-strong:    #573039;
+  --code-bg:        #1a0e12;
+  --code-border:    #3a2027;
+  --inline-bg:      #2e161c;
+  --inline-fg:      #ffc9d2;
+
+  --surface-hi:     #2a161c;
+  --header-bg:      rgba(20, 8, 11, 0.9);
+  --header-sheen:   rgba(255, 255, 255, 0.05);
+  --nav-bg:         rgba(20, 8, 11, 0.98);
+  --code-head:      #2a161c;
+  --th-bg:          #35191f;
+  --row-alt:        #26141a;
+  --row-hover:      #33191f;
+  --footer-far:     #1c0d11;
+  --on-fire:        #2a0a00;
+  --ember-text:     #ffab86;
+  --ok-bg:          #0f2417;
+  --ok-fg:          #7fe0a3;
+  --ok-line:        #2c5c3e;
+
+  --tok-comment:    #c99ba2;
+  --tok-string:     #7fd8a0;
+  --tok-operator:   #ffab6b;
+  --tok-function:   #ff9ad0;
+  --tok-variable:   #ffb375;
+
+  --shadow-sm:      0 1px 2px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.35);
+  --shadow-md:      0 4px 14px rgba(0, 0, 0, 0.55), 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-lg:      0 14px 40px rgba(0, 0, 0, 0.6), 0 4px 10px rgba(0, 0, 0, 0.45);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
+    --crimson:        #ff8095;
+    --crimson-deep:   #ffc9d2;
+    --crimson-bright: #ffa3b1;
+    --ember:          #ff7a4d;
+    --ember-glow:     #ffab86;
+    --fire:           #ffcf5c;
+    --petal:          #46212a;
+    --petal-soft:     #2e161c;
+    --rose:           #ff8f8f;
+    --blush:          #14080b;
+    --cream:          #211116;
+    --ink:            #ffeef0;
+    --ink-soft:       #f2d9dd;
+    --muted:          #cfa7ad;
+    --muted-soft:     #b18e94;
+    --line:           #3a2027;
+    --line-strong:    #573039;
+    --code-bg:        #1a0e12;
+    --code-border:    #3a2027;
+    --inline-bg:      #2e161c;
+    --inline-fg:      #ffc9d2;
+
+    --surface-hi:     #2a161c;
+    --header-bg:      rgba(20, 8, 11, 0.9);
+    --header-sheen:   rgba(255, 255, 255, 0.05);
+    --nav-bg:         rgba(20, 8, 11, 0.98);
+    --code-head:      #2a161c;
+    --th-bg:          #35191f;
+    --row-alt:        #26141a;
+    --row-hover:      #33191f;
+    --footer-far:     #1c0d11;
+    --on-fire:        #2a0a00;
+    --ember-text:     #ffab86;
+    --ok-bg:          #0f2417;
+    --ok-fg:          #7fe0a3;
+    --ok-line:        #2c5c3e;
+
+    --tok-comment:    #c99ba2;
+    --tok-string:     #7fd8a0;
+    --tok-operator:   #ffab6b;
+    --tok-function:   #ff9ad0;
+    --tok-variable:   #ffb375;
+
+    --shadow-sm:      0 1px 2px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.35);
+    --shadow-md:      0 4px 14px rgba(0, 0, 0, 0.55), 0 1px 3px rgba(0, 0, 0, 0.4);
+    --shadow-lg:      0 14px 40px rgba(0, 0, 0, 0.6), 0 4px 10px rgba(0, 0, 0, 0.45);
+  }
+}
+
+/* The logo is a light-ground mark; lift it off the dark header. */
+:root[data-theme="dark"] .site-brand__logo,
+:root[data-theme="dark"] .site-footer__brand img {
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.6));
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .site-brand__logo,
+  :root:not([data-theme="light"]) .site-footer__brand img {
+    filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.6));
+  }
+}
+
+/* The primary CTA keeps a light brand fill in dark mode, so its inset icon
+   chip must tint DOWN, not up — a white wash on pink leaves the glyph flat. */
+:root[data-theme="dark"] .cta--primary .cta__icon {
+  background: rgba(0, 0, 0, 0.22);
+  border-color: rgba(0, 0, 0, 0.28);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .cta--primary .cta__icon {
+    background: rgba(0, 0, 0, 0.22);
+    border-color: rgba(0, 0, 0, 0.28);
+  }
+}

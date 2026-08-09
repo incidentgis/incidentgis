@@ -19,7 +19,8 @@ layout: layouts/base.njk
       </p>
       <p>
         Focus areas: incident location mapping, evacuation routing, shelter capacity tracking,
-        real-time multi-agency sync, alert automation, reporting, and failover planning.
+        real-time multi-agency sync, raster hazard layers, public alerting and CAP pipelines,
+        vehicle and resource tracking, reporting, and failover planning.
       </p>
 
       <div class="hero__cta">
@@ -110,10 +111,12 @@ layout: layouts/base.njk
         lifecycle of emergency GIS — from coordinate reference system choice and field data
         ingestion through real-time multi-agency sync and reproducible Python toolchains. Alongside
         the core references you'll find head-to-head technology comparisons (FlatGeobuf vs GeoPackage,
-        Kafka vs RabbitMQ), throughput benchmarks under simulated surge load, evacuation routing and
-        shelter-capacity schemas, and consolidated NIMS, FEMA, and OGC compliance checklists. Every
-        article includes working code, deterministic patterns, and schema definitions written for
-        engineers shipping mission-critical systems in the field.
+        Kafka vs RabbitMQ, PostGIS vs DuckDB, async vs threaded Python), throughput benchmarks under
+        simulated surge load, evacuation routing and shelter-capacity schemas, Cloud-Optimized GeoTIFF
+        hazard rasters, public alerting and CAP message pipelines, vehicle and resource tracking feeds,
+        and consolidated NIMS, FEMA, and OGC compliance checklists. Every article includes working code,
+        deterministic patterns, and schema definitions written for engineers shipping mission-critical
+        systems in the field.
       </p>
 
       <ul>
@@ -153,7 +156,8 @@ layout: layouts/base.njk
       <h2 id="start-here-heading">Start here</h2>
       <p>
         New to the site? These articles represent the most important foundations and most-used
-        patterns across the three sections.
+        patterns across the three sections, including the newest areas — hazard rasters, public
+        alerting, resource tracking, and the analytical and concurrency comparisons.
       </p>
     </div>
     <div class="related-grid" style="margin-top: 1.2em;">
@@ -195,6 +199,31 @@ layout: layouts/base.njk
       <a class="related-card" href="{{ site.url }}/python-toolchains-for-public-safety-gis/spatial-data-testing-and-ci-pipelines/">
         <div class="related-card__label">Python Toolchains</div>
         <div class="related-card__title">Spatial Data Testing &amp; CI Pipelines</div>
+        <div class="related-card__arrow">→</div>
+      </a>
+      <a class="related-card" href="{{ site.url }}/core-emergency-gis-architecture-data-standards/raster-hazard-layers-and-cloud-optimized-geotiff/">
+        <div class="related-card__label">Architecture &amp; Standards</div>
+        <div class="related-card__title">Raster Hazard Layers &amp; Cloud-Optimized GeoTIFF</div>
+        <div class="related-card__arrow">→</div>
+      </a>
+      <a class="related-card" href="{{ site.url }}/core-emergency-gis-architecture-data-standards/postgis-vs-duckdb-for-incident-analytics/">
+        <div class="related-card__label">Architecture &amp; Standards</div>
+        <div class="related-card__title">PostGIS vs DuckDB for Incident Analytics</div>
+        <div class="related-card__arrow">→</div>
+      </a>
+      <a class="related-card" href="{{ site.url }}/incident-mapping-multi-agency-sync-workflows/public-alerting-and-cap-message-pipelines/">
+        <div class="related-card__label">Incident Mapping &amp; Sync</div>
+        <div class="related-card__title">Public Alerting &amp; CAP Message Pipelines</div>
+        <div class="related-card__arrow">→</div>
+      </a>
+      <a class="related-card" href="{{ site.url }}/incident-mapping-multi-agency-sync-workflows/avl-and-resource-tracking-feeds/">
+        <div class="related-card__label">Incident Mapping &amp; Sync</div>
+        <div class="related-card__title">AVL &amp; Resource Tracking Feeds</div>
+        <div class="related-card__arrow">→</div>
+      </a>
+      <a class="related-card" href="{{ site.url }}/python-toolchains-for-public-safety-gis/async-vs-threaded-python-for-geospatial-io/">
+        <div class="related-card__label">Python Toolchains</div>
+        <div class="related-card__title">Async vs Threaded Python for Geospatial I/O</div>
         <div class="related-card__arrow">→</div>
       </a>
     </div>

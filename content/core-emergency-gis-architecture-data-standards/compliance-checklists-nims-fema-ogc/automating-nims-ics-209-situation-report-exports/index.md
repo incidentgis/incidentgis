@@ -152,6 +152,69 @@ The impact is operational, not cosmetic. A bounced ICS-209 delays the resource o
   </g>
 </svg>
 
+It helps to see the form the way the exporter has to see it — not as fifty-odd fields to fill, but as three populations with different failure modes.
+
+<svg viewBox="0 0 880 410" role="img" aria-labelledby="bm-title bm-desc" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="bm-title">ICS-209 blocks grouped by where each value comes from</title>
+  <desc id="bm-desc">Nine ICS-209 Incident Status Summary blocks are shown with the origin of each value. Incident name, incident number and operational period are carried straight from the datastore record. Report version, incident size in acres, percent contained and point of origin are derived from the frozen snapshot geometry. Incident commander and threat to life and property are entered by a human. The four derived blocks must all be computed from one snapshot taken in a single transaction, because re-querying between blocks lets the acreage and the containment percentage describe different instants of a growing fire, producing a report that is internally inconsistent while every individual number in it is correct.</desc>
+  <rect x="0" y="0" width="880" height="410" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">ICS-209 blocks, by where the value comes from</text>
+  <text x="56" y="72" font-size="11" font-weight="700" fill="currentColor">ICS-209 Incident Status Summary</text>
+  <rect x="56" y="86" width="166" height="76" rx="8" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <text x="70" y="110" font-size="10.5" font-weight="700" fill="currentColor">1 · Incident Name</text>
+  <text x="70" y="150" font-size="9.5" font-weight="700" fill="var(--muted)">carried</text>
+  <rect x="232" y="86" width="166" height="76" rx="8" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <text x="246" y="110" font-size="10.5" font-weight="700" fill="currentColor">2 · Incident</text>
+  <text x="246" y="126" font-size="10.5" font-weight="700" fill="currentColor">Number</text>
+  <text x="246" y="150" font-size="9.5" font-weight="700" fill="var(--muted)">carried</text>
+  <rect x="408" y="86" width="166" height="76" rx="8" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <text x="422" y="110" font-size="10.5" font-weight="700" fill="currentColor">3 · Report Version</text>
+  <text x="422" y="150" font-size="9.5" font-weight="700" fill="var(--crimson-deep)">derived</text>
+  <rect x="56" y="176" width="166" height="76" rx="8" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <text x="70" y="200" font-size="10.5" font-weight="700" fill="currentColor">4 · Incident</text>
+  <text x="70" y="216" font-size="10.5" font-weight="700" fill="currentColor">Commander</text>
+  <text x="70" y="240" font-size="9.5" font-weight="700" fill="var(--ember-text)">entered</text>
+  <rect x="232" y="176" width="166" height="76" rx="8" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <text x="246" y="200" font-size="10.5" font-weight="700" fill="currentColor">5 · Operational</text>
+  <text x="246" y="216" font-size="10.5" font-weight="700" fill="currentColor">Period</text>
+  <text x="246" y="240" font-size="9.5" font-weight="700" fill="var(--muted)">carried</text>
+  <rect x="408" y="176" width="166" height="76" rx="8" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <text x="422" y="200" font-size="10.5" font-weight="700" fill="currentColor">6 · Incident Size</text>
+  <text x="422" y="216" font-size="10.5" font-weight="700" fill="currentColor">(acres)</text>
+  <text x="422" y="240" font-size="9.5" font-weight="700" fill="var(--crimson-deep)">derived</text>
+  <rect x="56" y="266" width="166" height="76" rx="8" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <text x="70" y="290" font-size="10.5" font-weight="700" fill="currentColor">7 · Percent</text>
+  <text x="70" y="306" font-size="10.5" font-weight="700" fill="currentColor">Contained</text>
+  <text x="70" y="330" font-size="9.5" font-weight="700" fill="var(--crimson-deep)">derived</text>
+  <rect x="232" y="266" width="166" height="76" rx="8" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <text x="246" y="290" font-size="10.5" font-weight="700" fill="currentColor">8 · Point of Origin</text>
+  <text x="246" y="306" font-size="10.5" font-weight="700" fill="currentColor">(lat / lon)</text>
+  <text x="246" y="330" font-size="9.5" font-weight="700" fill="var(--crimson-deep)">derived</text>
+  <rect x="408" y="266" width="166" height="76" rx="8" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <text x="422" y="290" font-size="10.5" font-weight="700" fill="currentColor">9 · Threat to Life</text>
+  <text x="422" y="306" font-size="10.5" font-weight="700" fill="currentColor">and Property</text>
+  <text x="422" y="330" font-size="9.5" font-weight="700" fill="var(--ember-text)">entered</text>
+  <text x="630" y="72" font-size="11" font-weight="700" fill="var(--crimson-deep)">source</text>
+  <circle cx="636" cy="94" r="6" fill="var(--crimson-deep)"/>
+  <text x="650" y="98" font-size="10" fill="currentColor">derived from the snapshot</text>
+  <circle cx="636" cy="118" r="6" fill="var(--muted)"/>
+  <text x="650" y="122" font-size="10" fill="currentColor">carried from the record</text>
+  <circle cx="636" cy="142" r="6" fill="var(--ember)"/>
+  <text x="650" y="146" font-size="10" fill="currentColor">entered by a human</text>
+  <rect x="630" y="176" width="242" height="130" rx="9" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.6"/>
+  <text x="644" y="202" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">one snapshot, not four queries</text>
+  <text x="644" y="226" font-size="10" fill="currentColor">Blocks 3, 6, 7 and 8 all read the</text>
+  <text x="644" y="242" font-size="10" fill="currentColor">same frozen transaction. Re-query</text>
+  <text x="644" y="258" font-size="10" fill="currentColor">between them and the acreage and</text>
+  <text x="644" y="274" font-size="10" fill="currentColor">the containment figure describe</text>
+  <text x="644" y="290" font-size="10" fill="currentColor">different instants of one fire.</text>
+  <text x="440" y="386" font-size="11" text-anchor="middle" fill="var(--muted)">Every number can be individually correct and the report still internally inconsistent.</text>
+</svg>
+
+The carried blocks are the easy ones: a value already exists, and the export copies it. The entered blocks are the honest ones: no automation can produce them, and pretending otherwise is how a report acquires a threat assessment nobody made. The derived blocks are where situation-report automation actually goes wrong, and it goes wrong in a way that leaves every individual number defensible.
+
+Consider what happens if the exporter issues one query per block against a live datastore during a fast-moving fire. Block 6 reads the perimeter and computes 4,180 acres. Forty seconds later block 7 reads the control lines and computes 45 per cent contained — but against a perimeter that has since grown, so the percentage is of a larger denominator than block 6 reported. Both figures are correct measurements. Together they describe a fire that does not exist, and the inconsistency is invisible because nothing in the report records which instant each number came from. Freezing one snapshot in one transaction is not an optimisation; it is what makes the blocks describe the same fire.
+
 ## Tiered Resolution Strategy
 
 Build the export as ordered tiers, from the definitive automated path down to a safe default that never transmits a bad report. Never emit silently and never re-key by hand — both destroy the audit chain.
@@ -161,6 +224,54 @@ Build the export as ordered tiers, from the definitive automated path down to a 
 3. **Validate every required block.** Enforce presence, type, and range on each mandatory field, plus cross-field rules (operational-period end after start, containment within 0–100, report version consistent with prior submissions). A report that fails is never transmitted.
 4. **Quarantine failures with a reason (safe default).** Hold any report that fails validation, flag it for a human with the specific block that failed, and leave the prior valid report as the last authoritative status rather than sending a broken one.
 5. **Emit an audit record for every attempt.** Pass or fail, record the snapshot time, incident number, report version, validation outcome, mapping version, and schema version, so any submission can be replayed against the exact inputs and rules that produced it.
+
+Tier four is the one that looks like a failure and is actually the feature. Holding a report rather than transmitting it does not leave the response without a status.
+
+<svg viewBox="0 0 880 340" role="img" aria-labelledby="ln-title ln-desc" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="ln-title">What stays authoritative when one operational period's export fails validation</title>
+  <desc id="ln-desc">Five operational periods, each with an export attempt and the report that is authoritative during it. Versions one, two, four and five pass validation and become authoritative in their own period. Version three fails validation because block 7, percent contained, is out of range, so it is quarantined and never transmitted. During operational period three the previously valid version two remains the authoritative status rather than a gap or a broken report. There is never an interval in which no report is authoritative, and there is never an interval in which an invalid one is.</desc>
+  <rect x="0" y="0" width="880" height="340" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">a failed export never creates a gap, and never transmits a bad report</text>
+  <text x="245" y="76" font-size="10.5" font-weight="700" text-anchor="middle" fill="var(--crimson-deep)">OP 1</text>
+  <rect x="180" y="196" width="130" height="44" rx="7" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.4"/>
+  <text x="245" y="223" font-size="11" font-weight="700" text-anchor="middle" fill="var(--crimson-deep)">v1</text>
+  <text x="375" y="76" font-size="10.5" font-weight="700" text-anchor="middle" fill="var(--crimson-deep)">OP 2</text>
+  <rect x="310" y="196" width="130" height="44" rx="7" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.4"/>
+  <text x="375" y="223" font-size="11" font-weight="700" text-anchor="middle" fill="var(--crimson-deep)">v2</text>
+  <text x="505" y="76" font-size="10.5" font-weight="700" text-anchor="middle" fill="var(--crimson-deep)">OP 3</text>
+  <rect x="440" y="196" width="130" height="44" rx="7" fill="var(--petal)" stroke="var(--crimson)" stroke-width="1.4" stroke-dasharray="5 4"/>
+  <text x="505" y="223" font-size="11" font-weight="700" text-anchor="middle" fill="var(--crimson-deep)">v2 (held)</text>
+  <text x="635" y="76" font-size="10.5" font-weight="700" text-anchor="middle" fill="var(--crimson-deep)">OP 4</text>
+  <rect x="570" y="196" width="130" height="44" rx="7" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.4"/>
+  <text x="635" y="223" font-size="11" font-weight="700" text-anchor="middle" fill="var(--crimson-deep)">v4</text>
+  <text x="765" y="76" font-size="10.5" font-weight="700" text-anchor="middle" fill="var(--crimson-deep)">OP 5</text>
+  <rect x="700" y="196" width="130" height="44" rx="7" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.4"/>
+  <text x="765" y="223" font-size="11" font-weight="700" text-anchor="middle" fill="var(--crimson-deep)">v5</text>
+  <circle cx="245" cy="110" r="11" fill="var(--crimson)"/>
+  <path d="M240 110 l4 5 l7 -9" fill="none" stroke="var(--cream)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="245" y="140" font-size="10" text-anchor="middle" fill="currentColor">v1</text>
+  <circle cx="375" cy="110" r="11" fill="var(--crimson)"/>
+  <path d="M370 110 l4 5 l7 -9" fill="none" stroke="var(--cream)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="375" y="140" font-size="10" text-anchor="middle" fill="currentColor">v2</text>
+  <circle cx="505" cy="110" r="11" fill="var(--blush)" stroke="var(--ember)" stroke-width="2.4"/>
+  <path d="M500 105 l10 10 M510 105 l-10 10" fill="none" stroke="var(--ember)" stroke-width="2.2" stroke-linecap="round"/>
+  <text x="505" y="140" font-size="10" text-anchor="middle" fill="currentColor">v3 quarantined</text>
+  <circle cx="635" cy="110" r="11" fill="var(--crimson)"/>
+  <path d="M630 110 l4 5 l7 -9" fill="none" stroke="var(--cream)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="635" y="140" font-size="10" text-anchor="middle" fill="currentColor">v4</text>
+  <circle cx="765" cy="110" r="11" fill="var(--crimson)"/>
+  <path d="M760 110 l4 5 l7 -9" fill="none" stroke="var(--cream)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="765" y="140" font-size="10" text-anchor="middle" fill="currentColor">v5</text>
+  <text x="505" y="158" font-size="9.5" text-anchor="middle" fill="var(--ember-text)" font-weight="700">block 7 out of range</text>
+  <text x="8" y="116" font-size="10.5" font-weight="700" fill="currentColor">export attempt</text>
+  <text x="8" y="222" font-size="10.5" font-weight="700" fill="currentColor">authoritative</text>
+  <text x="180" y="272" font-size="10.5" fill="currentColor">The prior valid report holds the status until a passing one replaces it.</text>
+  <text x="440" y="312" font-size="11" text-anchor="middle" fill="var(--muted)">Quarantine is not an outage — it is the previous truth continuing to be true.</text>
+</svg>
+
+At no point in that sequence is there an interval without an authoritative report, and at no point is there an interval with an invalid one. That property is worth more than it first appears, because the alternative designs both fail badly under exactly the conditions that produce a validation error in the first place. Transmitting the broken report puts a percentage-contained figure of 140 in front of a planning section that will act on it. Transmitting nothing produces a gap that reads, to everyone downstream, as an incident whose status is unknown — which triggers exactly the phone calls the automated report exists to prevent, at the hour when the operations chief has least time for them.
+
+What makes holding safe is that the previous report was itself validated and carries its own snapshot time. It is not a stale guess; it is a report that was true at a stated instant, and its age is legible in the report itself. The quarantined attempt is not discarded either — it goes to a human with the specific block that failed, so the underlying data defect gets fixed before the next operational period rather than being rediscovered every cycle.
 
 ## Production Python Implementation
 

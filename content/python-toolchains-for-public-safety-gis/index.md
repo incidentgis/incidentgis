@@ -10,6 +10,8 @@ Incident response rarely happens in pristine development environments. A type-3 
 
 These are documented failure modes, not hypotheticals. NIMS Incident Command System reporting (the ICS-209 situation report in particular) assumes a single authoritative common operating picture; FEMA's geospatial products carry chain-of-custody expectations; and ISO 22320 requires that decision-support information be consistent and verifiable across cooperating agencies. A toolchain that cannot guarantee bit-for-bit reproducible geometry across heterogeneous hardware cannot meet any of those obligations. The remedy is disciplined infrastructure: immutable runtime images, pinned spatial binaries, deterministic ETL, and audit-grade version control — the four concerns this section anchors.
 
+What makes toolchain drift particularly corrosive in this domain is that it produces no error. A misconfigured database refuses connections and someone is paged within minutes; a PROJ build resolving a different transformation pipeline returns a coordinate, on time, with no warning, and the map renders. The defect is therefore discovered by its consequences rather than by its symptoms, which puts the entire burden of detection on the discipline described below rather than on monitoring.
+
 ## Architecture Overview
 
 <svg viewBox="0 0 940 470" role="img" aria-label="End-to-end data-flow diagram of the public safety Python toolchain. Heterogeneous field and edge sources — CAD or RMS dispatch logs, IoT sensors, drone telemetry, and handheld GPS collectors — feed a reproducible, containerized Python runtime with pinned GDAL, PROJ, and geopandas binaries. Inside the runtime, deterministic ETL and CRS normalization to a single EPSG hand records to a validation and CI gate that fails closed: off-contract or out-of-bounds payloads are routed to a reject and audit table, while accepted records become versioned spatial outputs tracked in Git and Git LFS. Those outputs feed a single common operating picture consumed by the emergency operations center, the mobile command vehicle, and partner agencies. When network backhaul drops, the runtime forks to a degraded-mode offline cache that vendors PROJ grids and queues edits for replay on reconnect." xmlns="http://www.w3.org/2000/svg" style="font-family:inherit">
@@ -99,7 +101,7 @@ These are documented failure modes, not hypotheticals. NIMS Incident Command Sys
   </g>
   <g font-size="9.5" fill="currentColor" text-anchor="middle">
     <text x="452" y="412">backhaul drop → fork</text>
-    <text x="434" y="90">replay on reconnect</text>
+    <text x="449" y="196" transform="rotate(-90 449 196)">replay on reconnect</text>
   </g>
 </svg>
 
@@ -151,6 +153,68 @@ CMD ["python3", "main.py"]
 ```
 
 Setting `PROJ_NETWORK=OFF` and vendoring grid-shift files matters for field resilience: a node that silently fetches transformation grids over the network will fail closed — or worse, fall back to a coarser transform — the moment backhaul drops. This is the same discipline the [offline GIS data caching strategies](https://www.incidentgis.com/core-emergency-gis-architecture-data-standards/offline-gis-data-caching-strategies/) apply to basemaps and boundary layers.
+
+The word doing the work in that Dockerfile is *locked*, and it is worth being concrete about what goes wrong without it. An unpinned image is not reproducible-with-occasional-surprises; it is a set of hosts whose behaviour diverges monotonically from the day they were built, at a rate set by how often each one happens to rebuild.
+
+<svg viewBox="0 0 880 400" role="img" aria-labelledby="drift-lane-title drift-lane-desc" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="drift-lane-title">How three agency hosts diverge over a deployment year with and without a locked dependency set</title>
+  <desc id="drift-lane-desc">Two panels covering twelve months. In the upper panel, three unpinned hosts — an emergency operations centre server, a mobile command vehicle, and a partner agency laptop — each rebuild on their own schedule and pick up whatever GDAL and PROJ versions are current that day. They start together on GDAL 3.8, then step to 3.8, 3.9 and 3.10 at different months, so by month twelve the three hosts are running three different PROJ datum-grid sets and the same transform returns three different results. In the lower panel the same three hosts share one locked requirements file with pinned hashes; all three stay on GDAL 3.8.4 and PROJ 9.3.1 for the whole year, and a version change happens once, deliberately, as a reviewed change to the lockfile.</desc>
+  <rect x="0" y="0" width="880" height="400" fill="var(--blush)"/>
+  <!-- month axis -->
+  <g font-size="10" text-anchor="middle" fill="var(--muted)">
+    <text x="250" y="30">month 3</text>
+    <text x="420" y="30">month 6</text>
+    <text x="590" y="30">month 9</text>
+    <text x="760" y="30">month 12</text>
+  </g>
+  <g stroke="var(--line-strong)" stroke-width="1" stroke-dasharray="3 4" opacity="0.7">
+    <path d="M250 38 V346"/><path d="M420 38 V346"/><path d="M590 38 V346"/><path d="M760 38 V346"/>
+  </g>
+  <!-- unpinned panel -->
+  <text x="8" y="56" font-size="11.5" font-weight="700" fill="var(--crimson-deep)">Unpinned — each host rebuilds on its own schedule</text>
+  <g font-size="10.5" fill="currentColor">
+    <text x="8" y="86">EOC server</text>
+    <text x="8" y="126">Command vehicle</text>
+    <text x="8" y="166">Partner laptop</text>
+  </g>
+  <g stroke-width="10" stroke-linecap="butt" fill="none">
+    <path d="M170 82 H420" stroke="var(--petal)"/>
+    <path d="M420 82 H760" stroke="var(--ember)" opacity="0.75"/>
+    <path d="M170 122 H590" stroke="var(--petal)"/>
+    <path d="M590 122 H760" stroke="var(--crimson)" opacity="0.8"/>
+    <path d="M170 162 H250" stroke="var(--petal)"/>
+    <path d="M250 162 H760" stroke="var(--ember)" opacity="0.55"/>
+  </g>
+  <g font-size="9.5" fill="currentColor">
+    <text x="176" y="70">GDAL 3.8</text>
+    <text x="426" y="70">GDAL 3.9 · PROJ 9.4</text>
+    <text x="176" y="110">GDAL 3.8</text>
+    <text x="596" y="110">GDAL 3.10 · PROJ 9.5</text>
+    <text x="176" y="150">GDAL 3.8</text>
+    <text x="256" y="150">GDAL 3.9 · PROJ 9.4</text>
+  </g>
+  <text x="546" y="196" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">by month 12: three datum-grid sets, three answers</text>
+  <path d="M760 176 V190" fill="none" stroke="var(--crimson-deep)" stroke-width="1.4"/>
+  <path d="M760 192 H548" fill="none" stroke="var(--crimson-deep)" stroke-width="1.2" opacity="0.6"/>
+  <!-- pinned panel -->
+  <text x="8" y="240" font-size="11.5" font-weight="700" fill="var(--crimson-deep)">Locked — one reviewed change to requirements.lock</text>
+  <g font-size="10.5" fill="currentColor">
+    <text x="8" y="270">EOC server</text>
+    <text x="8" y="300">Command vehicle</text>
+    <text x="8" y="330">Partner laptop</text>
+  </g>
+  <g stroke-width="10" stroke-linecap="butt" fill="none" stroke="var(--petal)">
+    <path d="M170 266 H760"/>
+    <path d="M170 296 H760"/>
+    <path d="M170 326 H760"/>
+  </g>
+  <text x="176" y="256" font-size="9.5" fill="currentColor">GDAL 3.8.4 · PROJ 9.3.1 — identical on all three hosts, all year</text>
+  <text x="440" y="378" font-size="11" text-anchor="middle" fill="var(--muted)">Drift is not caused by upgrading; it is caused by upgrading at three different times.</text>
+</svg>
+
+Read that way, the argument for pinning is not about staying on an old version — it is about changing version *as an event* rather than as a background process. Every host in the lower panel is equally out of date, which is a property you can reason about; the upper panel has no single version to reason about at all, and the failure it produces is the worst kind: a transform that returns 3 m differently on the command vehicle than on the EOC server, with both hosts reporting healthy and both answers looking plausible on a map. Nobody files a bug for a coordinate that is 3 m off. They file one months later, when a partner agency's parcel overlay no longer lines up and the investigation has to reconstruct which binary produced which artefact.
+
+This is also why the lockfile has to pin hashes rather than versions. A version constraint pins the number; a hash pins the bytes. Distribution rebuilds, yanked wheels and platform-specific binary wheels all mean that `pyproj==3.6.1` on two machines can be two different sets of compiled objects linked against two different PROJ builds. For a library whose entire job is to produce identical numeric output on every machine that runs it, that distinction is the whole game.
 
 ## Real-Time Data Ingestion and ETL
 
@@ -247,6 +311,62 @@ def buffer_large_incident_archive(
 
 The subtle defect this guards against is buffering in a geographic CRS: a 5000-unit buffer in EPSG:4326 is 5000 *degrees*, which is meaningless, while a naive degree approximation distorts badly with latitude. Reprojecting to the local Universal Transverse Mercator (UTM) zone first keeps the buffer honest — the same metric-CRS discipline the coordinate reference system standard mandates for any area or distance calculation.
 
+"Match the library to the hardware" is easy to say and hard to act on without numbers, because the two axes that matter pull in opposite directions. The chart below plots peak resident memory against sustained throughput for the four ways this stack commonly reads a million-feature incident archive, with the constraint that actually decides the question drawn on it: a ruggedized tablet running a mobile command application can spare roughly 1.2 GB for the GIS process, and everything to the right of that line is unavailable no matter how fast it is.
+
+<svg viewBox="0 0 880 400" role="img" aria-labelledby="libsel-title libsel-desc" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="libsel-title">Peak memory against throughput for four ways of reading a large incident archive, with the field-hardware memory limit marked</title>
+  <desc id="libsel-desc">A scatter plot with peak resident memory in megabytes on the horizontal axis and sustained throughput in features per second on the vertical axis. PyShp uses about 85 megabytes at roughly 9,000 features per second. Fiona uses about 140 megabytes at roughly 14,000 features per second. Dask-GeoPandas, reading out of core in partitions, uses about 420 megabytes at roughly 26,000 features per second. GeoPandas, which loads the whole archive into memory, is the fastest at roughly 38,000 features per second but peaks near 1.9 gigabytes. A dashed threshold marks the 1.2 gigabyte envelope a ruggedized tablet can spare; the three lower-memory options fall inside it and GeoPandas falls outside, so on field hardware the fastest option is simply not selectable and Dask-GeoPandas is the best available.</desc>
+  <rect x="0" y="0" width="880" height="400" fill="var(--blush)"/>
+  <text x="8" y="50" font-size="11" font-weight="700" fill="var(--crimson-deep)">tablet envelope: peak RSS ≤ 1.2 GB</text>
+  <!-- feasible region (a path, not a card) -->
+  <path d="M200 60 H572 V300 H200 Z" fill="var(--petal-soft)" opacity="0.55"/>
+  <path d="M572 56 V304" fill="none" stroke="var(--crimson-deep)" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <!-- axes -->
+  <path d="M200 300 H820" fill="none" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <path d="M200 60 V300" fill="none" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <text x="8" y="70" font-size="10.5" fill="var(--muted)">features/s</text>
+  <g font-size="10" fill="var(--muted)">
+    <text x="150" y="304">0</text>
+    <text x="142" y="244">10k</text>
+    <text x="142" y="184">20k</text>
+    <text x="142" y="124">30k</text>
+    <text x="142" y="64">40k</text>
+  </g>
+  <g stroke="var(--line-strong)" stroke-width="0.9" opacity="0.5">
+    <path d="M200 240 H820"/><path d="M200 180 H820"/><path d="M200 120 H820"/>
+  </g>
+  <g font-size="10" text-anchor="middle" fill="var(--muted)">
+    <text x="200" y="322">0</text>
+    <text x="355" y="322">500</text>
+    <text x="510" y="322">1000</text>
+    <text x="665" y="322">1500</text>
+    <text x="820" y="322">2000</text>
+    <text x="510" y="344" font-size="11">peak resident memory (MB)</text>
+  </g>
+  <!-- points -->
+  <g>
+    <circle cx="226" cy="246" r="7" fill="var(--crimson)"/>
+    <circle cx="243" cy="216" r="7" fill="var(--crimson)"/>
+    <circle cx="330" cy="144" r="9" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="2"/>
+    <circle cx="789" cy="72" r="7" fill="var(--ember)"/>
+  </g>
+  <path d="M745 72 H778" fill="none" stroke="var(--ember)" stroke-width="1.2"/>
+  <g font-size="10.5" fill="currentColor">
+    <text x="240" y="250">pyshp · 85 MB · 9k/s</text>
+    <text x="258" y="220">fiona · 140 MB · 14k/s</text>
+    <text x="347" y="148">dask-geopandas · 420 MB · 26k/s</text>
+    <text x="600" y="76">geopandas · 1.9 GB · 38k/s</text>
+  </g>
+  <text x="347" y="164" font-size="9.5" fill="var(--crimson-deep)" font-weight="700">best available on field hardware</text>
+  <text x="440" y="378" font-size="11" text-anchor="middle" fill="var(--muted)">The fastest option is not on the menu once the memory constraint is drawn.</text>
+</svg>
+
+The shape of that plot is the whole argument. Ranked on throughput alone, the ordering is unambiguous and useless: GeoPandas wins, and a benchmark run on a workstation will keep telling you so. Once the envelope is drawn, GeoPandas is not slow — it is *absent*, and the real comparison is between the three options that remain. Among those, the ordering inverts what most teams expect: the lightest option is also the slowest by a factor of three, and the out-of-core reader gets within a third of the full in-memory speed at a fifth of its memory. On field hardware, partitioned out-of-core reading is not a compromise; it is the best available answer, and it is the one that never appears in a comparison run on a machine with enough RAM to make the constraint invisible.
+
+A related trap is treating the memory number as a property of the library rather than of the access pattern. GeoPandas is not intrinsically a 1.9 GB tool; it is a tool that materialises the entire frame, and a workflow that reads one bounding-box window at a time will sit comfortably inside the envelope while using the same import. The position on this chart is therefore something a code review can move, not a fixed attribute to be looked up — which is why the field profile is worth measuring against the code you actually ship rather than against the library's reputation.
+
+Two practical cautions come with reading a chart like this. The first is that peak resident memory, not average, is what kills a process — a tablet with 200 MB of headroom will survive an average of 900 MB and be killed by a two-second spike to 1.4 GB while a geometry column is being materialised. Measure the peak under the worst input you expect, not the median one. The second is that these positions move with the shape of the data, not just its size: a million points and a million multi-part polygons with thousands of vertices each have very different footprints in the same library. Re-measure against a representative extract of the archive the field units will actually carry, and treat any number produced against synthetic point data as an upper bound on your luck rather than an estimate of your throughput.
+
 ## Validation, Testing, and CI Integration
 
 Geospatial scripts deployed in public safety contexts cannot rely on manual QA. Spatial workflows need deterministic unit tests, topology assertions, and integration checks that run automatically before deployment. The pattern below combines `pytest` with explicit CRS and geometry assertions so a projection mismatch fails the build instead of a field map. Wiring these assertions into a build server is a discipline of its own; [spatial data testing and CI pipelines](https://www.incidentgis.com/python-toolchains-for-public-safety-gis/spatial-data-testing-and-ci-pipelines/) covers geometry fixtures, snapshot comparisons, and gating a merge on a projection regression. This is the toolchain-side complement to the [automated attribute validation rules](https://www.incidentgis.com/incident-mapping-multi-agency-sync-workflows/automated-attribute-validation-rules/) that guard incoming agency data.
@@ -282,6 +402,8 @@ def test_iot_stream_round_trips_position() -> None:
 ```
 
 Spatial data and the code that produces it must also be tracked with strict versioning. Git extended with Git Large File Storage (Git LFS) for shapefiles, GeoParquet, and raster tiles, alongside metadata-driven commit policies, maintains the audit trail required for post-incident review — the subject of [version control for spatial workflows](https://www.incidentgis.com/python-toolchains-for-public-safety-gis/version-control-for-spatial-workflows/). Together these guarantee that every analytical output can be traced to the exact codebase, dependency tree, and input dataset used to generate it.
+
+One further toolchain decision cuts across all of the above: how the runtime handles concurrency. [Async versus threaded Python for geospatial I/O](https://www.incidentgis.com/python-toolchains-for-public-safety-gis/async-vs-threaded-python-for-geospatial-io/) separates network wait, blocking calls that cannot yield, and GEOS arithmetic — three kinds of work that respond to concurrency in completely different ways, and that no single model serves.
 
 ## Cross-Agency Interoperability
 

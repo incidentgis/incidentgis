@@ -155,6 +155,48 @@ Triage each record in ordered tiers, from the definitive accept down to a safe d
 4. **Quarantine the unparseable (safe default).** Truncated or malformed WKB that cannot be decoded goes to a dead-letter store keyed by sensor and offset, so it is preserved for inspection or replay after the transport fault is fixed — never retried in a tight loop that wedges the partition.
 5. **Emit an audit record for every decision.** Sensor id, reason code, original byte length, and the repaired or substituted outcome — so the ingest result is reproducible and every quarantined reading is accountable, exactly as the [emergency metadata standards](https://www.incidentgis.com/core-emergency-gis-architecture-data-standards/emergency-metadata-standards/) require for lineage.
 
+The line between tier two and tier three is the one worth drawing carefully, because "repair" and "reject" sound like a severity judgement and are actually a question about whether the original position still exists in the bytes.
+
+<svg viewBox="0 0 880 380" role="img" aria-labelledby="gr-t gr-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="gr-t">Four kinds of broken geometry, and which of them a repair can actually fix</title>
+  <desc id="gr-d">Four defects are shown as received and after repair. A self-intersecting bowtie polygon repairs into a MultiPolygon of two triangles, preserving the area the sensor described. A polygon carrying a zero-width spike from a duplicated vertex repairs by dropping the spike. An unclosed ring repairs by closing it, since the intended shape is unambiguous. A geometry containing a NaN ordinate cannot be repaired at all — there is no position to recover, only a hole where one should be — so it is rejected outright rather than substituted. The first three defects are about how a real position was encoded; the fourth is the absence of a position, which is why it is the only one that leaves the pipeline.</desc>
+  <rect x="0" y="0" width="880" height="380" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">three of these describe a real position badly — the fourth describes no position at all</text>
+  <text x="8" y="146" font-size="10" font-weight="700" fill="var(--muted)">as received</text>
+  <text x="8" y="260" font-size="10" font-weight="700" fill="var(--muted)">after repair</text>
+  <text x="140" y="80" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">self-intersection</text>
+  <text x="320" y="80" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">spike / duplicate vertex</text>
+  <text x="500" y="80" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">unclosed ring</text>
+  <text x="680" y="80" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">NaN ordinate</text>
+  <polygon points="155,106 275,106 155,176 275,176" fill="var(--petal)" stroke="var(--crimson)" stroke-width="1.8"/>
+  <polygon points="335,166 355,116 385,118 387,100 389,118 445,120 455,166" fill="var(--petal)" stroke="var(--crimson)" stroke-width="1.8"/>
+  <polyline points="515,166 525,116 585,106 635,126 625,164" fill="none" stroke="var(--crimson)" stroke-width="1.8"/>
+  <circle cx="515" cy="166" r="4" fill="var(--ember)"/>
+  <circle cx="625" cy="164" r="4" fill="var(--ember)"/>
+  <polyline points="695,166 705,116 765,106" fill="none" stroke="var(--crimson)" stroke-width="1.8"/>
+  <polyline points="815,126 805,164 695,166" fill="none" stroke="var(--crimson)" stroke-width="1.8"/>
+  <text x="772" y="122" font-size="11" font-weight="700" fill="var(--ember-text)">NaN</text>
+  <polygon points="155,220 275,220 215,254" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.8"/>
+  <polygon points="155,290 275,290 215,258" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.8"/>
+  <polygon points="335,280 355,230 385,232 445,234 455,280" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.8"/>
+  <polygon points="515,280 525,230 585,220 635,240 625,278" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.8"/>
+  <path d="M725 228 l60 60 M785 228 l-60 60" fill="none" stroke="var(--ember)" stroke-width="3" stroke-linecap="round"/>
+  <g fill="none" stroke="var(--line-strong)" stroke-width="1.6">
+    <path d="M215 192 V204"/><path d="M395 192 V204"/><path d="M575 192 V204"/><path d="M755 192 V204"/>
+  </g>
+  <text x="140" y="332" font-size="9.5" font-weight="700" fill="var(--crimson-deep)">repaired → MultiPolygon</text>
+  <text x="320" y="332" font-size="9.5" font-weight="700" fill="var(--crimson-deep)">repaired → spike dropped</text>
+  <text x="500" y="332" font-size="9.5" font-weight="700" fill="var(--crimson-deep)">repaired → ring closed</text>
+  <text x="680" y="332" font-size="9.5" font-weight="700" fill="var(--ember-text)">rejected — not repairable</text>
+  <text x="8" y="366" font-size="10.5" fill="currentColor">Repair is only legitimate where the intended geometry is recoverable — otherwise it is invention with an audit trail.</text>
+</svg>
+
+In the first three cases the sensor described a real place and encoded it badly. A bowtie polygon has an unambiguous area — `make_valid` splits it into two triangles and nothing about the reported ground is invented. A zero-width spike from a duplicated vertex contributes no area and dropping it changes nothing. An unclosed ring has exactly one sensible closure. Repairing these is not a compromise; it recovers what the sensor meant, and the audit record notes that the bytes needed work.
+
+A `NaN` ordinate is a different kind of object. There is no position hiding behind it to recover, so any "repair" is a decision to make one up — substituting a previous reading, a centroid, or a zero. Each of those produces a geometry that is syntactically perfect, passes every downstream validity check, and describes somewhere the sensor never reported. That is strictly worse than dropping the message, because a dropped message shows up as a gap that someone can ask about, and a fabricated one does not.
+
+The practical consequence for the implementation: run the finite-ordinate check *before* the validity check, not after. `make_valid` on a geometry containing `NaN` has undefined behaviour across GEOS versions — sometimes it throws, sometimes it returns something plausible — and a pipeline that discovers the problem downstream of the repair has already lost the evidence of what arrived.
+
 ## Production Python Implementation
 
 The routine below carries the full resolution path: defensive parsing, a finite-coordinate scan, `make_valid` repair with a type-and-measure sanity check, quarantine routing for the unrecoverable, structured logging, explicit exception handling, and an immutable audit record per decision. Thresholds and the quarantine sink are injected, not hard-coded, so the same triage runs identically across field nodes and the central pipeline. Senior-engineer assumptions apply: `shapely` 2.x (for `make_valid` and the GEOS bindings) is available, and geometry arrives as WKB bytes on the wire.
@@ -317,6 +359,45 @@ def _iter_coords(geom: BaseGeometry):
 ```
 
 The `audit_log` is the load-bearing output. Persisted alongside the dead-letter store, it lets a reviewer replay every quarantined offset once the transport fault is resolved and confirm that no reading was fabricated or silently lost — the same accountability contract that governs the wider [geospatial data ingestion pipeline](https://www.incidentgis.com/core-emergency-gis-architecture-data-standards/geospatial-data-ingestion-pipelines/).
+
+Instrumenting the five tiers matters more than it might seem, because the populations they separate are small enough to vanish from any summary statistic.
+
+<svg viewBox="0 0 880 360" role="img" aria-labelledby="sd-t sd-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="sd-t">Disposition of 10,000 sensor messages across one operational period</title>
+  <desc id="sd-d">Ten thousand streaming sensor messages are classified. 9,847 arrive clean and commit directly. 118 carry invalid but parseable topology and are repaired. 21 contain a non-finite ordinate and are rejected outright because no position can be recovered from them. 14 are unparseable and go to the dead-letter store for inspection. The repaired and rejected populations are each well under one per cent, which is exactly why they must be counted rather than sampled: at these rates a defect affecting one sensor is invisible in any dashboard that reports only a success percentage, and only the per-sensor reason-code breakdown makes it findable.</desc>
+  <rect x="0" y="0" width="880" height="360" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">10,000 messages, one operational period</text>
+  <text x="160" y="80" font-size="10" fill="var(--muted)">every message is accounted for — nothing is dropped without a reason code</text>
+  <rect x="160.0" y="96" width="669.6" height="46" fill="var(--crimson)" stroke="var(--blush)" stroke-width="1"/>
+  <rect x="829.6" y="96" width="8.0" height="46" fill="var(--petal)" stroke="var(--blush)" stroke-width="1"/>
+  <rect x="837.6" y="96" width="2.2" height="46" fill="var(--ember)" opacity="0.65" stroke="var(--blush)" stroke-width="1"/>
+  <rect x="839.0" y="96" width="2.2" height="46" fill="var(--crimson-deep)" stroke="var(--blush)" stroke-width="1"/>
+  <circle cx="166" cy="190" r="7" fill="var(--crimson)"/>
+  <text x="180" y="194" font-size="10.5" fill="currentColor">clean · committed</text>
+  <text x="470" y="194" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">9,847</text>
+  <text x="560" y="194" font-size="10.5" fill="var(--muted)">98.47%</text>
+  <circle cx="166" cy="216" r="7" fill="var(--petal)"/>
+  <text x="180" y="220" font-size="10.5" fill="currentColor">invalid topology · repaired</text>
+  <text x="470" y="220" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">118</text>
+  <text x="560" y="220" font-size="10.5" fill="var(--muted)">1.18%</text>
+  <circle cx="166" cy="242" r="7" fill="var(--ember)" opacity="0.65"/>
+  <text x="180" y="246" font-size="10.5" fill="currentColor">non-finite ordinate · rejected</text>
+  <text x="470" y="246" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">21</text>
+  <text x="560" y="246" font-size="10.5" fill="var(--muted)">0.21%</text>
+  <circle cx="166" cy="268" r="7" fill="var(--crimson-deep)"/>
+  <text x="180" y="272" font-size="10.5" fill="currentColor">unparseable WKB · dead-letter</text>
+  <text x="470" y="272" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">14</text>
+  <text x="560" y="272" font-size="10.5" fill="var(--muted)">0.14%</text>
+  <rect x="160" y="292" width="680" height="46" rx="8" fill="var(--cream)" stroke="var(--ember)" stroke-width="1.6"/>
+  <text x="176" y="312" font-size="10.5" font-weight="700" fill="var(--ember-text)">98.47% success is not a health metric</text>
+  <text x="176" y="330" font-size="10" fill="currentColor">All 21 rejections came from two sensors — visible in the reason-code breakdown, invisible in the rate.</text>
+</svg>
+
+At 98.47 per cent clean, a dashboard reporting a success rate shows a flat green line all shift. The 21 rejected messages are 0.21 per cent — indistinguishable from noise at that resolution — and in this period every one of them came from two sensors whose firmware had begun emitting a `NaN` altitude on low battery. That is a finding: it names two devices to swap and a firmware version to hold back. It is completely unreachable from the success rate, and it is trivially reachable from a breakdown by reason code and sensor identifier.
+
+So the counter that belongs on the operations dashboard is not "messages processed" but the four dispositions side by side, and the alert should fire on a *change in composition* rather than on a threshold. A steady 0.2 per cent rejection rate is a fleet with two flaky sensors and is fine. The same 0.2 per cent redistributed across forty sensors overnight is a firmware rollout going wrong, and it will never cross a rate threshold set anywhere sensible.
+
+Keep the dead-letter store separate from the rejection counter for the same reason. Unparseable bytes and non-finite ordinates are different faults — one is a transport or framing problem, the other is a sensor problem — and collapsing them into a single "bad messages" number destroys the only signal that distinguishes a failing radio link from a failing instrument.
 
 ## Validation Checklist
 

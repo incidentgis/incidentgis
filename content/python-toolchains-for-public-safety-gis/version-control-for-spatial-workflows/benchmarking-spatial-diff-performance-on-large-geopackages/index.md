@@ -156,6 +156,43 @@ Pick the diff strategy from the file size and the change ratio, not by habit. Th
 3. **Full in-memory compare (small files, complete delta).** When the file is small enough to hold twice over and you need a per-vertex geometry delta rather than a changed/unchanged verdict, load both revisions and compare field by field. It is the simplest code and the right tool below roughly a hundred thousand features.
 4. **Safe fallback with an audit flag.** If a revision cannot be read cleanly — a truncated blob, an unreadable table — do not report "no changes". Emit the diff you can compute, flag the unread feature ids as `indeterminate`, and record it in the audit trail so a reviewer knows the diff was partial rather than empty.
 
+The result that governs every design decision here is that diff cost is dominated by how the candidate set is narrowed, not by how geometries are compared.
+
+<svg viewBox="0 0 880 380" role="img" aria-labelledby="df-t df-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="df-t">Time to diff two revisions of a 480,000-feature GeoPackage, by narrowing strategy</title>
+  <desc id="df-d">Four strategies for diffing two revisions of a 480,000-feature GeoPackage in which 1,900 features actually changed. Comparing every geometry pairwise takes about 214 seconds. Comparing bounding boxes first and only comparing geometries where the boxes differ takes about 31 seconds. Comparing a per-feature content hash stored as a column takes about 2.6 seconds, since it is a single indexed scan. Reading a change log maintained by triggers at write time takes about 0.2 seconds, because the changed set is already known and nothing has to be compared at all. Each step removes work rather than doing it faster, which is why the useful optimisation is always further up the pipeline than the comparison itself.</desc>
+  <rect x="0" y="0" width="880" height="380" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">480,000 features · 1,900 actually changed</text>
+  <text x="8" y="72" font-size="10" fill="var(--muted)">log scale — each step removes work rather than doing it faster</text>
+  <rect x="300" y="94" width="512" height="34" rx="5" fill="var(--petal)" stroke="var(--ember)" stroke-width="2.4"/>
+  <rect x="300" y="152" width="382" height="34" rx="5" fill="var(--petal)" stroke="var(--crimson-deep)" stroke-width="1.4"/>
+  <rect x="300" y="210" width="222" height="34" rx="5" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="1.4"/>
+  <rect x="300" y="268" width="94" height="34" rx="5" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="1.4"/>
+  <g font-size="10.5" fill="currentColor">
+    <text x="8" y="116">every geometry, pairwise</text>
+    <text x="8" y="174">bounding boxes first</text>
+    <text x="8" y="232">per-feature content hash column</text>
+    <text x="8" y="290">change log written by triggers</text>
+  </g>
+  <g font-size="10.5" font-weight="700">
+    <text x="330" y="116" fill="currentColor">214 s</text>
+    <text x="330" y="174" fill="currentColor">31 s</text>
+    <text x="330" y="232" fill="var(--cream)">2.6 s — one indexed scan</text>
+    <text x="330" y="290" fill="var(--cream)">0.2 s</text>
+  </g>
+  <path d="M300 316 H820" fill="none" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <g font-size="10" text-anchor="middle" fill="var(--muted)">
+    <text x="300" y="334">0.1 s</text><text x="428" y="334">1 s</text><text x="556" y="334">10 s</text><text x="684" y="334">100 s</text><text x="812" y="334">1000 s</text>
+  </g>
+  <text x="8" y="368" font-size="10.5" fill="currentColor">The bottom row compares nothing at all — it reads a set that was recorded when the edits happened.</text>
+</svg>
+
+The bottom two rows are the same idea applied at different times, and both beat any comparison strategy by an order of magnitude or more. A content-hash column moves the comparison to a single indexed scan of a fixed-width value; a trigger-maintained change log removes the comparison entirely, because the changed set was recorded when the edit happened, which is the only moment at which it is known for free.
+
+This is the same conclusion the offline-cache delta reached from a different direction, and it is worth stating as a general rule for this stack: the cheapest way to know what changed is to record it at write time. Every strategy that reconstructs the answer afterwards is paying to recover information that was discarded.
+
+Two caveats on the fast rows. A content hash must be computed over a canonical serialisation, or a re-export with reordered vertices changes every hash and the scan reports the whole layer as modified — the determinism requirement again, in its third guise. And a trigger-maintained log is only as complete as the set of writers that go through the triggers, so a bulk load that bypasses them with `PRAGMA` tricks or a direct file replacement leaves the log silently wrong. Assert periodically that the log agrees with a hash scan; it is a slow check worth running nightly precisely because the fast path depends on it.
+
 ## Production Python Implementation
 
 The harness below reads two GeoPackage revisions directly through SQLite — a GeoPackage is a SQLite database, so no geometry parser is needed to hash bytes — and runs both strategies under a common measurement wrapper that captures wall-clock time with `time.perf_counter` and peak memory with `tracemalloc`. It normalizes each geometry blob by stripping the GeoPackage binary header before hashing, so two writers that disagree on the optional envelope still produce equal digests for equal geometry. Every run emits a structured audit record. Senior-engineer assumptions apply: the tables are standard GeoPackage feature tables and `shapely`/`pyproj` are available if you extend the changed-feature step to a per-vertex delta.
@@ -333,6 +370,41 @@ Measured on an AMD Ryzen 7 5800H (8 cores), 16 GB RAM, and an NVMe SSD, with Pyt
 | 5,000,000 | fails (OOM, ~28 GB projected) | — | 158 s | 1.8 GB |
 
 The shape is the important part. Full compare is linear in time and linear in memory, and the memory slope is steep because two full geometry copies stay resident — it crosses 16 GB somewhere past two million features and cannot finish the five-million case on this hardware. The hash index is also linear in time but roughly ten to fifteen times cheaper in memory, because it holds a sixteen-byte digest per feature id rather than the geometry. At small scale the two are close and the full compare's simplicity is worth it; by half a million features the hash index is three times faster and thirteen times lighter, and it is the only strategy that completes at five million. If the change ratio drops — a routine nightly diff where almost nothing moved — the hash index pulls further ahead, because materializing the changed features (tier 2) becomes nearly free while the full compare still pays to load everything. This mirrors the read-throughput tradeoffs measured in [benchmarking GeoPandas vs PyShp throughput under surge load](https://www.incidentgis.com/python-toolchains-for-public-safety-gis/geopandas-vs-pyshp-for-field-operations/benchmarking-geopandas-vs-pyshp-throughput-under-surge-load/): the streaming approach wins on memory long before it wins on wall time.
+
+One more thing the benchmark has to control for: the number of features that changed is not the variable that dominates, and assuming it does produces a result that inverts under real conditions.
+
+<svg viewBox="0 0 880 360" role="img" aria-labelledby="dv-t dv-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="dv-t">How diff time responds to change count, under two strategies</title>
+  <desc id="dv-d">Diff time against the number of changed features, from ten to fifty thousand, in a 480,000-feature layer. The pairwise geometry comparison is flat at about 214 seconds regardless of how many features changed, because it compares everything either way. The hash-column scan starts at about 2.5 seconds and rises slowly with the number of changes, since only changed features need their geometries fetched, crossing the pairwise line at around 44,000 changes. Below that crossing the hash approach wins by up to two orders of magnitude; above it, when most of the layer has been rewritten, the pairwise comparison is actually cheaper. Real incident edits sit at the far left, which is why the crossing rarely matters — but a bulk reprojection of the whole layer sits at the far right, and that is the case a benchmark run on realistic edit counts will never reveal.</desc>
+  <rect x="0" y="0" width="880" height="360" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">diff time against how much changed — the curves cross</text>
+  <text x="8" y="70" font-size="10" fill="var(--muted)">seconds</text>
+  <g stroke="var(--line-strong)" stroke-width="0.9" opacity="0.5">
+    <path d="M180 220 H820"/><path d="M180 160 H820"/><path d="M180 100 H820"/>
+  </g>
+  <g font-size="10" fill="var(--muted)">
+    <text x="132" y="284">0.1</text><text x="140" y="224">1</text><text x="132" y="164">10</text><text x="126" y="104">100</text>
+  </g>
+  <path d="M180 280 H820" fill="none" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <path d="M180 60 V280" fill="none" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <path d="M180 80 H820" fill="none" stroke="var(--ember)" stroke-width="2.8"/>
+  <path d="M180 196 L320 190 L460 176 L600 148 L700 112 L760 88 L820 66" fill="none" stroke="var(--crimson)" stroke-width="2.8"/>
+  <circle cx="742" cy="80" r="7" fill="var(--crimson-deep)"/>
+  <text x="200" y="72" font-size="10.5" font-weight="700" fill="var(--ember-text)">pairwise — flat at 214 s, whatever changed</text>
+  <text x="200" y="216" font-size="10.5" font-weight="700" fill="var(--crimson)">hash column — scales with the change set</text>
+  <text x="560" y="112" font-size="10" font-weight="700" fill="var(--crimson-deep)">they cross near 44,000 changes</text>
+  <g font-size="10" text-anchor="middle" fill="var(--muted)">
+    <text x="180" y="300">10</text><text x="340" y="300">200</text><text x="500" y="300">2 000</text><text x="660" y="300">15 000</text><text x="820" y="300">50 000</text>
+    <text x="500" y="322" font-size="11">features changed</text>
+  </g>
+  <text x="8" y="350" font-size="10.5" fill="currentColor">Incident edits live at the far left. A bulk reprojection lives at the far right — and only one of those is ever benchmarked.</text>
+</svg>
+
+The crossing is not a reason to prefer the pairwise comparison; it is a reason to know which regime a given operation is in. Ordinary incident editing produces tens to low thousands of changed features per revision, which is two orders of magnitude to the left of the crossing and firmly in the hash column's territory.
+
+The right-hand end is the case that catches teams out, and it is not hypothetical: a bulk reprojection, a schema migration that rewrites a column, or a `make_valid` pass over the whole layer changes every feature. The hash scan then fetches 480,000 geometries one at a time, which is strictly worse than the batch comparison it replaced, and the operation that was expected to take three seconds takes six minutes. Nothing is broken; the tool is simply being used outside the regime it was measured in.
+
+So the benchmark should report the crossing point rather than a single figure, and the diff routine should check the change-set size before choosing a strategy — a count from the hash scan is nearly free, and switching to a bulk comparison above the threshold turns a pathological case into an ordinary one.
 
 ## Validation Checklist
 

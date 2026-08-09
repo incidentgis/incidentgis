@@ -100,6 +100,44 @@ The selection is a function of deployment tier and operational constraint, not p
 
 The practical consequence: reconcile and validate with Geopandas, then offload finalized features to PyShp for constrained-network distribution. The deduplication half of that handoff is covered in depth under [resolving duplicate incident reports across jurisdictions](https://www.incidentgis.com/python-toolchains-for-public-safety-gis/geopandas-vs-pyshp-for-field-operations/resolving-duplicate-incident-reports-across-jurisdictions/).
 
+The row that decides most deployments is the first one, and "in-memory versus streaming" understates it. The difference is not that one library uses more memory than the other; it is that their memory profiles have different *shapes*, and only one of those shapes has a ceiling you can plan around.
+
+<svg viewBox="0 0 880 380" role="img" aria-labelledby="mem-title mem-desc" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="mem-title">Resident memory while writing a 250,000-feature export, GeoPandas against PyShp</title>
+  <desc id="mem-desc">Resident set size plotted against features processed while exporting a 250,000-feature incident layer. GeoPandas materialises the whole frame before writing, so its memory climbs linearly from about 120 megabytes to roughly 1.9 gigabytes and crosses the 1.2 gigabyte ceiling of a ruggedized tablet at about 152,000 features, where the process is killed. PyShp writes sequentially and holds one record at a time, so it stays flat near 55 megabytes for the entire export regardless of how many features are written. The distinction is not that one library is lighter but that one has a memory profile proportional to the dataset and the other has a profile proportional to a single record.</desc>
+  <rect x="0" y="0" width="880" height="380" fill="var(--blush)"/>
+  <text x="8" y="56" font-size="10.5" fill="var(--muted)">peak RSS (MB)</text>
+  <g stroke="var(--line-strong)" stroke-width="0.9" opacity="0.5">
+    <path d="M180 240 H820"/><path d="M180 180 H820"/><path d="M180 120 H820"/><path d="M180 60 H820"/>
+  </g>
+  <g font-size="10" fill="var(--muted)">
+    <text x="110" y="304">0</text><text x="110" y="244">500</text><text x="104" y="184">1000</text>
+    <text x="104" y="124">1500</text><text x="104" y="64">2000</text>
+  </g>
+  <path d="M180 300 H820" fill="none" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <path d="M180 60 V300" fill="none" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <path d="M180 156 H820" fill="none" stroke="var(--crimson-deep)" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <text x="190" y="150" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">1.2 GB tablet ceiling</text>
+  <path d="M180 285.6 L308 242.4 L436 200.4 L564 158.4 L692 116.4 L820 74.4" fill="none" stroke="var(--crimson)" stroke-width="2.8"/>
+  <path d="M180 293.4 L308 292 L436 293.8 L564 292.4 L692 293.6 L820 292.8" fill="none" stroke="var(--crimson-deep)" stroke-width="2.8"/>
+  <circle cx="564" cy="156" r="7" fill="var(--ember)" stroke="var(--crimson-deep)" stroke-width="2"/>
+  <text x="424" y="180" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">OOM-killed at ~152k features</text>
+  <text x="596" y="100" font-size="11" font-weight="700" fill="var(--crimson)">geopandas — full materialisation</text>
+  <text x="556" y="282" font-size="11" font-weight="700" fill="var(--crimson-deep)">pyshp — sequential streaming</text>
+  <g font-size="10" text-anchor="middle" fill="var(--muted)">
+    <text x="180" y="320">0</text><text x="308" y="320">50k</text><text x="436" y="320">100k</text>
+    <text x="564" y="320">150k</text><text x="692" y="320">200k</text><text x="820" y="320">250k</text>
+    <text x="500" y="344" font-size="11">features written</text>
+  </g>
+  <text x="440" y="368" font-size="11" text-anchor="middle" fill="var(--muted)">One profile scales with the dataset; the other scales with a single record.</text>
+</svg>
+
+GeoPandas' consumption is proportional to the dataset, so its peak is a function of the input you happen to be handed. That is entirely workable on a command-centre node, where the input is known and the RAM is provisioned for the largest layer in the catalogue. It is unworkable on an edge node, because the quantity that determines whether the process survives is not under the edge node's control — a mutual-aid partner joins the response, the regional layer grows by 40 per cent, and a tablet that has exported this file every morning for a month is killed mid-write.
+
+PyShp's consumption is proportional to a single record. Two hundred and fifty thousand features and two and a half million cost the same 55 megabytes, because at no point does more than one record exist in memory. That is the property that makes it safe to ship to hardware you cannot profile in advance, and it is worth being precise about what it costs: no spatial index, no topology repair, no CRS awareness, no joins. PyShp is not a lighter GeoPandas. It is a serialiser, and every capability the analytics tier relies on has to have already happened before the data reaches it.
+
+Which is exactly why the tier boundary sits where it does. Reconciliation, validation and reprojection run once in the command-centre tier where the memory to do them exists; the edge tier receives data that is already correct and does nothing but write it out. Attempting the reverse — pushing a spatial join to the edge because the edge is where the data is needed — is the single most common way these deployments fail, and it fails at exactly the moment the incident grows.
+
 ## Step-by-Step Implementation
 
 ### Step 1 — Memory-bounded ingestion with Geopandas (command-center tier)
@@ -221,6 +259,63 @@ A shapefile is not one file. The `.shx` index and `.dbf` attribute table must tr
 | Bounds check (`±180/±90`) | PyShp writer | enabled | Keep enabled for WGS 84 output; widen only for projected-coordinate export |
 | `GDAL_DATA` / `PROJ_LIB` | Geopandas runtime | container-set | Must point at vendored offline grid-shift files for correct datum transforms |
 
+Verifying the sidecar set sounds like defensive box-ticking until you notice that the format's own notion of which files are optional is exactly backwards from an operational point of view.
+
+<svg viewBox="0 0 880 360" role="img" aria-labelledby="side-title side-desc" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="side-title">The shapefile sidecar set and what breaks, loudly or silently, when each file is absent</title>
+  <desc id="side-desc">A shapefile is five files, not one. The shp file carries geometry, the shx file the index and the dbf file the attributes; all three are required by the format, and losing any of them fails loudly — nothing loads, the reader rebuilds the index, or features arrive with no attributes. The prj and cpg files are optional in the specification and mandatory in this workflow, because losing them fails silently: without a prj the reader substitutes its own default coordinate reference system and the data lands in the wrong place while looking fine, and without a cpg non-ASCII attribute text is decoded with the wrong codepage and becomes mojibake. Silent failures are the reason the export step verifies the sidecar set before distribution rather than trusting that a write succeeded.</desc>
+  <rect x="0" y="0" width="880" height="360" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">a shapefile is five files — and two of the five fail without saying so</text>
+  <text x="8" y="70" font-size="10" fill="var(--muted)">what is missing</text>
+  <text x="8" y="166" font-size="10" fill="var(--muted)">what a reader does</text>
+  <rect x="40" y="90" width="140" height="56" rx="8" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="1.8"/>
+  <text x="110" y="114" font-size="13" font-weight="700" text-anchor="middle" fill="var(--cream)">.shp</text>
+  <text x="110" y="132" font-size="10" text-anchor="middle" fill="var(--cream)">geometry</text>
+  <rect x="200" y="90" width="140" height="56" rx="8" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="1.8"/>
+  <text x="270" y="114" font-size="13" font-weight="700" text-anchor="middle" fill="var(--cream)">.shx</text>
+  <text x="270" y="132" font-size="10" text-anchor="middle" fill="var(--cream)">index</text>
+  <rect x="360" y="90" width="140" height="56" rx="8" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="1.8"/>
+  <text x="430" y="114" font-size="13" font-weight="700" text-anchor="middle" fill="var(--cream)">.dbf</text>
+  <text x="430" y="132" font-size="10" text-anchor="middle" fill="var(--cream)">attributes</text>
+  <rect x="520" y="90" width="140" height="56" rx="8" fill="var(--petal-soft)" stroke="var(--ember)" stroke-width="1.8"/>
+  <text x="590" y="114" font-size="13" font-weight="700" text-anchor="middle" fill="var(--crimson-deep)">.prj</text>
+  <text x="590" y="132" font-size="10" text-anchor="middle" fill="var(--crimson-deep)">CRS</text>
+  <rect x="680" y="90" width="140" height="56" rx="8" fill="var(--petal-soft)" stroke="var(--ember)" stroke-width="1.8"/>
+  <text x="750" y="114" font-size="13" font-weight="700" text-anchor="middle" fill="var(--crimson-deep)">.cpg</text>
+  <text x="750" y="132" font-size="10" text-anchor="middle" fill="var(--crimson-deep)">encoding</text>
+  <rect x="40" y="180" width="140" height="66" rx="8" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <text x="52" y="206" font-size="10" fill="currentColor">nothing loads —</text>
+  <text x="52" y="222" font-size="10" fill="currentColor">not a dataset</text>
+  <rect x="200" y="180" width="140" height="66" rx="8" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <text x="212" y="206" font-size="10" fill="currentColor">most readers</text>
+  <text x="212" y="222" font-size="10" fill="currentColor">rebuild it</text>
+  <rect x="360" y="180" width="140" height="66" rx="8" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <text x="372" y="206" font-size="10" fill="currentColor">geometry only,</text>
+  <text x="372" y="222" font-size="10" fill="currentColor">no attributes</text>
+  <rect x="520" y="180" width="140" height="66" rx="8" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <text x="532" y="206" font-size="10" fill="currentColor">the reader guesses</text>
+  <text x="532" y="222" font-size="10" fill="currentColor">its own CRS</text>
+  <rect x="680" y="180" width="140" height="66" rx="8" fill="var(--cream)" stroke="var(--line-strong)" stroke-width="1.3"/>
+  <text x="692" y="206" font-size="10" fill="currentColor">non-ASCII text</text>
+  <text x="692" y="222" font-size="10" fill="currentColor">becomes mojibake</text>
+  <text x="110" y="268" font-size="10.5" font-weight="700" text-anchor="middle" fill="var(--crimson-deep)">loud</text>
+  <text x="270" y="268" font-size="10.5" font-weight="700" text-anchor="middle" fill="var(--crimson-deep)">loud</text>
+  <text x="430" y="268" font-size="10.5" font-weight="700" text-anchor="middle" fill="var(--crimson-deep)">loud</text>
+  <text x="590" y="268" font-size="10.5" font-weight="700" text-anchor="middle" fill="var(--ember-text)">silent</text>
+  <text x="750" y="268" font-size="10.5" font-weight="700" text-anchor="middle" fill="var(--ember-text)">silent</text>
+  <circle cx="206" cy="304" r="7" fill="var(--crimson)"/>
+  <text x="220" y="308" font-size="10.5" fill="currentColor">required by the format</text>
+  <circle cx="456" cy="304" r="7" fill="var(--petal-soft)" stroke="var(--ember)" stroke-width="2"/>
+  <text x="470" y="308" font-size="10.5" fill="currentColor">optional by spec — mandatory here</text>
+  <text x="440" y="344" font-size="11" text-anchor="middle" fill="var(--muted)">The two the specification calls optional are the two whose absence you will not notice.</text>
+</svg>
+
+The three files the specification calls mandatory are the three whose absence is impossible to miss. Ship a `.shp` without its `.dbf` and every reader in the response reports features with no attributes within seconds of opening it; somebody notices immediately and asks for a resend. That is an inconvenience, not an incident.
+
+The two the specification calls optional are the dangerous ones, because their absence produces a file that opens cleanly and is wrong. Without a `.prj`, a reader does not refuse — it substitutes a default, which for most desktop GIS clients is whatever the current project frame is using. The layer draws, the symbology renders, and the perimeter sits in the wrong place by however far the two coordinate systems disagree. Without a `.cpg`, attribute text is decoded with the reader's platform codepage, so a street name carrying a diacritic arrives mangled, and the operator who eventually spots it has no way to tell whether the export was corrupt or the source data was.
+
+This asymmetry is the whole argument for verifying the set explicitly rather than checking that the write returned successfully. A successful write tells you the bytes reached the disk; it says nothing about whether the five files that constitute a usable dataset are all present. Assert on the file set, assert that the `.prj` contains the CRS you intended rather than merely existing, and treat a missing `.cpg` as a failed export rather than a warning — the cost of a re-export is a minute, and the cost of a silently reprojected evacuation boundary is the reason this site exists.
+
 ## Verification and Smoke Test
 
 Run these assertions in staging before any field deployment. They confirm the Geopandas tier produced valid, correctly-projected geometry and the PyShp tier emitted a complete, importable shapefile set.
@@ -252,6 +347,14 @@ CLI equivalent for a field tech without a Python shell:
 ```bash
 ogrinfo -so -al edge_output.shp | grep -E "Feature Count|Geometry|EPSG"
 ```
+
+## A note on the third option nobody costs
+
+There is a version of this decision that skips both libraries: hand the edge node a GeoPackage and let it read the container directly. It is worth costing honestly rather than dismissing, because for a growing share of field applications it is the right answer.
+
+The case for it is that a GeoPackage is a single file with an embedded CRS, real attribute typing, no codepage ambiguity and no sidecar set to verify — every silent failure mode described above simply does not exist. The case against it is dependency weight: reading one properly means GDAL, which is precisely the binary surface the edge tier was built to avoid, and a pure-Python SQLite reader gives you the container without the spatial semantics that make it worth having.
+
+The deciding question is usually not technical but institutional: what can the receiving agency open? A shapefile is the format every partner in a multi-agency response can read without a conversation, which is a real operational property and the reason it persists three decades after it should have been retired. Where the consumer is your own field application, ship a GeoPackage and delete this entire class of problem. Where the consumer is a partner agency's decade-old desktop install, ship the shapefile and verify all five files — and see the [FlatGeobuf versus GeoPackage comparison](https://www.incidentgis.com/core-emergency-gis-architecture-data-standards/flatgeobuf-vs-geopackage-for-offline-caching/) for the streaming-read alternative when the consumer is a cache rather than a person.
 
 ## Integration with Adjacent Workflows
 

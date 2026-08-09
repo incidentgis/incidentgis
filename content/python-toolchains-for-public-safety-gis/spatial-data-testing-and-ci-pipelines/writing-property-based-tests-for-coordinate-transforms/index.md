@@ -165,6 +165,43 @@ Build the suite in ordered tiers, from the invariant that must always hold down 
 4. **Guard axis order independently.** Add a dedicated property that a longitude-heavy coordinate never round-trips as if it were latitude, so an `always_xy` regression is caught directly rather than hidden inside the tolerance, the same contract described in [fixing axis-order inversion in cross-agency GeoJSON](https://www.incidentgis.com/core-emergency-gis-architecture-data-standards/coordinate-reference-systems-for-disaster-zones/fixing-axis-order-inversion-in-cross-agency-geojson/).
 5. **Emit an audit record for every counterexample (safe default).** On any failure, record the shrunk minimal coordinate, the CRS pair, the observed error, and the PROJ version so the regression is reproducible against the exact math that produced it — and so a flaky failure can be traced to a datum-grid change rather than the code.
 
+Four properties cover almost everything a coordinate transform can get wrong, and each one fails against a different class of defect.
+
+<svg viewBox="0 0 880 400" role="img" aria-labelledby="pb-t pb-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="pb-t">Four transform properties and the defect each one detects</title>
+  <desc id="pb-d">Four invariants worth asserting over generated coordinates. Round-trip stability, where transforming to a target CRS and back returns the original within tolerance, catches an inverted transform and a wrong datum. Bounds preservation, where a point inside a known extent stays inside its transformed extent, catches axis-order inversion, because a transposed coordinate leaves the extent immediately. Monotonic ordering, where a point east of another stays east after transformation, catches a sign error that a round trip would cancel out. Distance ratio preservation, where the ratio of two distances is preserved within the projection's known distortion, catches a unit error such as feet interpreted as metres. The important property of the set is that round-trip alone passes for two of the four defects, which is why it is the one everybody writes and not enough on its own.</desc>
+  <rect x="0" y="0" width="880" height="400" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">round-trip is the one everybody writes — and it passes for half of these defects</text>
+  <rect x="40" y="72" width="800" height="72" rx="9" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.6"/>
+  <text x="60" y="98" font-size="11" font-weight="700" fill="currentColor">round-trip stability</text>
+  <text x="60" y="118" font-size="10" font-family="var(--font-mono)" fill="var(--muted)">to_target(to_source(p)) ≈ p</text>
+  <text x="440" y="98" font-size="10" font-weight="700" fill="var(--crimson-deep)">catches: inverted transform · wrong datum</text>
+  <text x="440" y="118" font-size="10" fill="var(--ember-text)">misses: a sign error that cancels · a unit error applied twice</text>
+  <rect x="40" y="154" width="800" height="72" rx="9" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.6"/>
+  <text x="60" y="180" font-size="11" font-weight="700" fill="currentColor">bounds preservation</text>
+  <text x="60" y="200" font-size="10" font-family="var(--font-mono)" fill="var(--muted)">p in extent ⇒ t(p) in t(extent)</text>
+  <text x="440" y="180" font-size="10" font-weight="700" fill="var(--crimson-deep)">catches: axis-order inversion, immediately</text>
+  <text x="440" y="200" font-size="10" fill="currentColor">a transposed coordinate leaves the extent on the first sample</text>
+  <rect x="40" y="236" width="800" height="72" rx="9" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.6"/>
+  <text x="60" y="262" font-size="11" font-weight="700" fill="currentColor">monotonic ordering</text>
+  <text x="60" y="282" font-size="10" font-family="var(--font-mono)" fill="var(--muted)">a.x &lt; b.x ⇒ t(a).x &lt; t(b).x</text>
+  <text x="440" y="262" font-size="10" font-weight="700" fill="var(--crimson-deep)">catches: a sign error the round trip cancels out</text>
+  <text x="440" y="282" font-size="10" fill="currentColor">within one zone — state the caveat, it does not hold across all projections</text>
+  <rect x="40" y="318" width="800" height="72" rx="9" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.6"/>
+  <text x="60" y="344" font-size="11" font-weight="700" fill="currentColor">distance ratio preservation</text>
+  <text x="60" y="364" font-size="10" font-family="var(--font-mono)" fill="var(--muted)">d(a,b)/d(c,d) preserved within known distortion</text>
+  <text x="440" y="344" font-size="10" font-weight="700" fill="var(--crimson-deep)">catches: a unit error — feet read as metres</text>
+  <text x="440" y="364" font-size="10" fill="currentColor">a uniform scale factor survives every property above this one</text>
+</svg>
+
+The round-trip property is the one that gets written, and it is the weakest of the four precisely because it is symmetric. Any defect applied identically in both directions cancels: a unit error that treats feet as metres going out and metres as feet coming back returns the original point exactly, and the test passes on a transform that is wrong by a factor of 3.28 in every real use.
+
+Bounds preservation is the cheapest strong property. Axis-order inversion moves a point by tens of degrees, so a single generated sample inside any realistic extent fails the assertion — you do not need a clever generator or many trials, which makes this the property to add first if only one is going to be added.
+
+Monotonic ordering needs its caveat stated in the test itself. It holds within a UTM zone and along the relevant axis; it does not hold in general across projections, and a test that asserts it globally will produce failures that are correct behaviour and get suppressed, which is worse than not having the test. Constrain the generator to one zone and say so in the docstring.
+
+Distance ratio is the only one of the four that detects a uniform scale error, because every other property is invariant under scaling. It is also the fiddliest to write, since it needs a tolerance derived from the projection's actual distortion at the sampled latitudes rather than a fixed epsilon — which is the same `sec²φ` arithmetic the coordinate-reference section works through.
+
 ## Production Python Implementation
 
 The module below is a complete Hypothesis suite for a longitude/latitude to Web Mercator transform. It carries the full path: a bounded coordinate strategy, the round-trip invariant, an independent axis-order property, forced antimeridian and pole examples, structured logging, explicit exception handling around transform construction, and an audit-trail emission for every counterexample. Senior-engineer assumptions apply: `pyproj` and `hypothesis` are available, transformers are built once with `always_xy=True`, and the tolerance is a named, versioned constant rather than a literal buried in an assertion.
@@ -324,6 +361,41 @@ def test_axis_order_not_swapped(lon: float, lat: float) -> None:
 ```
 
 The `AUDIT_LOG` is the load-bearing output. Persisting it as a committed, content-hashed artifact — alongside the Hypothesis example database that replays each counterexample — lets a reviewer confirm exactly which coordinate broke, under which PROJ version, which is the reproducibility guarantee the [version control workflow for spatial data](https://www.incidentgis.com/python-toolchains-for-public-safety-gis/version-control-for-spatial-workflows/) is built to provide.
+
+The generator's shape matters as much as the properties, and the default of "uniform over the whole coordinate space" is close to useless.
+
+<svg viewBox="0 0 880 380" role="img" aria-labelledby="gn-t gn-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="gn-t">Where generated coordinates should be drawn from, and what each region tests</title>
+  <desc id="gn-d">Four regions a coordinate generator should sample. Uniform over the whole globe wastes most trials on ocean and polar coordinates the pipeline will never see, and its failures are usually the generator's rather than the code's. The incident's own extent is where the pipeline actually operates and where a regression matters. Zone and datum boundaries — the edge of a UTM zone, a State Plane boundary, the antimeridian, the equator — are where transformation pipelines switch behaviour and where nearly all real defects live. Degenerate values such as exactly zero, exactly the pole, and the largest representable double catch the guards rather than the arithmetic. A good generator draws mostly from the second and third and only a little from the first and fourth.</desc>
+  <rect x="0" y="0" width="880" height="380" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">draw mostly from the middle two — that is where the defects are</text>
+  <rect x="300" y="86" width="61" height="32" rx="5" fill="var(--petal)" stroke="var(--line-strong)" stroke-width="1.2"/>
+  <rect x="300" y="140" width="184" height="32" rx="5" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="1.2"/>
+  <rect x="300" y="194" width="245" height="32" rx="5" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="1.2"/>
+  <rect x="300" y="248" width="61" height="32" rx="5" fill="var(--petal)" stroke="var(--line-strong)" stroke-width="1.2"/>
+  <g font-size="10.5" fill="currentColor">
+    <text x="8" y="108">uniform over the globe</text>
+    <text x="8" y="162">the incident's own extent</text>
+    <text x="8" y="216">zone and datum boundaries</text>
+    <text x="8" y="270">degenerate values</text>
+  </g>
+  <g font-size="10" fill="var(--muted)">
+    <text x="372" y="108">most trials land in ocean the pipeline never sees</text>
+    <text x="496" y="162">where a regression actually matters</text>
+    <text x="558" y="216">UTM zone edges · State Plane seams · antimeridian · equator</text>
+    <text x="372" y="270">exactly 0, the pole, the largest double — tests the guards</text>
+  </g>
+  <text x="300" y="70" font-size="10" font-weight="700" fill="var(--muted)">suggested share of trials</text>
+  <rect x="40" y="308" width="800" height="60" rx="9" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.6"/>
+  <text x="60" y="332" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">and always: fix the seed, print it on failure, and commit the failing case as a regression example</text>
+  <text x="60" y="352" font-size="10" fill="currentColor">a property test that cannot be reproduced is a flaky test, and a flaky test gets disabled</text>
+</svg>
+
+Boundary regions get the largest share because that is where transformation behaviour changes. A UTM zone edge is where the false easting convention makes two adjacent points diverge; a State Plane seam is where a state's two zones use different parameters for the same ground; the antimeridian is where longitude wraps; the equator is where a hemisphere flag flips. Almost every real transform defect is a boundary defect, and uniform sampling reaches those regions vanishingly rarely.
+
+The seeding discipline in the bottom bar is what keeps the suite usable. A property test that fails once in forty runs with a different input each time is indistinguishable from flakiness, and the organisational response to flakiness is to disable the test. Fixing the seed makes every run identical; printing the failing input makes the failure diagnosable; committing that input as a hand-written example — the left-hand column of the fixture taxonomy — makes it a permanent regression test that runs in milliseconds.
+
+That last step is the one usually skipped and it is where the value compounds. Each property failure, once converted to an example, moves a defect from the expensive layer of the suite to the cheap one, so the fast tests get progressively better at catching exactly the things that have gone wrong before.
 
 ## Validation Checklist
 

@@ -97,6 +97,8 @@ The reference architecture treats every spatial asset as untrusted until it has 
   <path d="M747 470 V484 H436 V452" fill="none" stroke="var(--crimson)" stroke-width="1.8" stroke-dasharray="5 4" marker-end="url(#arch-arrow)"/>
 </svg>
 
+The reason every source funnels through one boundary rather than validating in place is that emergency data arrives from organizations you do not control and cannot patch. A county CAD vendor changes an export encoding; a drone operator ships a new firmware that writes a different CRS tag; a partner agency's crowdsourced portal starts accepting free-text coordinates. If each consumer validates on its own terms, the system develops as many definitions of "valid" as it has integrations, and the disagreements only surface during an incident. A single boundary means there is exactly one place to answer the question *what did we accept, and on what grounds* — which is also the only tractable place to instrument, rate-limit, and audit. Everything downstream of it may assume the contract holds; everything upstream of it is assumed hostile until proven otherwise.
+
 ## Core Standard: Mandatory Spatial Asset Contract
 
 Every feature entering the operational datastore must satisfy a baseline contract. The table below is the minimum schema enforced at the ingestion boundary across all four architectural concerns; individual sub-systems may extend it, but never relax it. Operational sub-systems that extend this base contract — notably [shelter capacity and resource-tracking schemas](https://www.incidentgis.com/core-emergency-gis-architecture-data-standards/shelter-capacity-and-resource-tracking-schemas/) — inherit every field above and layer their own occupancy and allocation columns on top rather than inventing a parallel model.
@@ -158,6 +160,60 @@ def normalize_incident_geometry(
 ```
 
 Proper implementation of the [Coordinate Reference System standard for disaster zones](https://www.incidentgis.com/core-emergency-gis-architecture-data-standards/coordinate-reference-systems-for-disaster-zones/) ensures that drone orthomosaics, LiDAR point clouds, and incident command boundaries align within sub-meter tolerances, eliminating spatial ambiguity during joint operations. Two edge cases dominate field incidents: [missing CRS metadata in field-collected GPS logs](https://www.incidentgis.com/core-emergency-gis-architecture-data-standards/geospatial-data-ingestion-pipelines/handling-missing-crs-in-field-collected-gps-logs/), and legacy raster sources such as [CADRG maps that must be converted to GeoJSON](https://www.incidentgis.com/core-emergency-gis-architecture-data-standards/coordinate-reference-systems-for-disaster-zones/converting-cadrg-maps-to-geojson-with-python/) before they can participate in modern transforms.
+
+### The positional error budget
+
+"Deterministic CRS handling" is easy to agree with and hard to prioritize, because the failures it prevents differ in magnitude by six orders of magnitude and only some of them are visible. It helps to hold the whole error budget in one view. The chart below places the common sources of horizontal displacement against the tolerance that actually matters operationally — roughly ten metres, the width at which an evacuation line stops reliably separating one side of a street from the other.
+
+<svg viewBox="0 0 880 300" role="img" aria-labelledby="drift-title drift-desc" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="drift-title">Sources of horizontal positional error against the ten-metre evacuation-line tolerance</title>
+  <desc id="drift-desc">A horizontal bar chart of typical displacement magnitudes in metres. Reference-frame epoch drift over ten years is about two metres, the NAD83 1986 to NAD83 2011 realization shift about 1.4 metres, and a parametric fallback used when a transformation grid is unavailable about 4.5 metres — all three sit inside the ten-metre evacuation-line tolerance marked by a dashed threshold. A NAD27 to WGS 84 conversion in the continental United States displaces about 78 metres, well past tolerance. An inverted axis order is off the scale entirely, relocating the feature by thousands of kilometres. The lesson is that the first three are budgetable and must be logged, the fourth silently invalidates an evacuation boundary, and the fifth is so large it is caught by any bounds check.</desc>
+  <rect x="0" y="0" width="880" height="300" fill="var(--blush)"/>
+  <!-- tolerance threshold -->
+  <text x="302" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">10 m · evacuation-line tolerance</text>
+  <path d="M295.8 50 V250" fill="none" stroke="var(--crimson-deep)" stroke-width="1.4" stroke-dasharray="5 4"/>
+  <!-- bars -->
+  <g>
+    <rect x="250" y="60" width="9.2" height="24" rx="3" fill="var(--petal)" stroke="var(--line-strong)" stroke-width="1.2"/>
+    <rect x="250" y="98" width="6.4" height="24" rx="3" fill="var(--petal)" stroke="var(--line-strong)" stroke-width="1.2"/>
+    <rect x="250" y="136" width="20.6" height="24" rx="3" fill="var(--petal)" stroke="var(--line-strong)" stroke-width="1.2"/>
+    <rect x="250" y="174" width="357.5" height="24" rx="3" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="1.2"/>
+    <rect x="250" y="212" width="530" height="24" rx="3" fill="var(--ember)" opacity="0.55" stroke="var(--ember)" stroke-width="1.4"/>
+    <path d="M780 212 l12 12 l-12 12" fill="none" stroke="var(--ember)" stroke-width="2"/>
+  </g>
+  <!-- row labels -->
+  <g font-size="11.5" fill="currentColor">
+    <text x="8" y="77">reference-frame drift, 10 yr</text>
+    <text x="8" y="115">NAD83(1986) → (2011)</text>
+    <text x="8" y="153">grid missing → parametric</text>
+    <text x="8" y="191">NAD27 → WGS 84 (CONUS)</text>
+    <text x="8" y="229">axis order inverted</text>
+  </g>
+  <!-- magnitudes -->
+  <g font-size="11.5" font-weight="700">
+    <text x="812" y="77" fill="var(--muted)">2.0 m</text>
+    <text x="812" y="115" fill="var(--muted)">1.4 m</text>
+    <text x="812" y="153" fill="var(--muted)">4.5 m</text>
+    <text x="812" y="191" fill="var(--crimson-deep)">78 m</text>
+    <text x="812" y="229" fill="var(--crimson-deep)">off scale</text>
+  </g>
+  <!-- axis -->
+  <path d="M250 250 H800" fill="none" stroke="var(--line-strong)" stroke-width="1.4"/>
+  <g font-size="10.5" text-anchor="middle" fill="var(--muted)">
+    <text x="250" y="272">0</text>
+    <text x="341.7" y="272">20</text>
+    <text x="433.3" y="272">40</text>
+    <text x="525" y="272">60</text>
+    <text x="616.7" y="272">80</text>
+    <text x="708.3" y="272">100</text>
+    <text x="800" y="272">120</text>
+    <text x="525" y="292" font-size="11">metres of horizontal displacement</text>
+  </g>
+</svg>
+
+Three consequences follow from the shape of that distribution. The first three sources are *budgetable*: they are real, they are smaller than the tolerance, and the correct response is to record them in the lineage block rather than to chase them to zero — a feature carrying a logged 4.5 m parametric fallback is still usable for evacuation planning, and knowing it is 4.5 m rather than unknown is the whole point. The fourth is the dangerous one: a NAD27 source treated as WGS 84 lands a wildfire perimeter roughly 78 m off, which is far enough to put the wrong side of a street inside the evacuation zone and small enough that the map still looks entirely plausible. Nothing about the rendered output announces the error. The fifth is, paradoxically, the safest of the failures, because a latitude of 105 degrees is not a coordinate any bounds check will accept.
+
+This is why the ingestion boundary rejects an absent EPSG code outright instead of guessing. A guess that happens to be right buys nothing; a guess that is wrong produces exactly the 78 m case, with no record that a guess was ever made.
 
 ## Geospatial Data Ingestion & Validation Pipelines
 
@@ -256,6 +312,8 @@ Regulatory and interagency reporting demands deterministic, repeatable outputs. 
 
 Network degradation is a predictable reality during large-scale incidents. Emergency GIS platforms must function seamlessly in disconnected or bandwidth-constrained environments. This requires strategic pre-staging of vector tiles, raster basemaps, and critical infrastructure layers using [Offline GIS Data Caching Strategies](https://www.incidentgis.com/core-emergency-gis-architecture-data-standards/offline-gis-data-caching-strategies/). Python can orchestrate cache synchronization via `requests` and `sqlite3`, ensuring field units retain access to routing networks and hazard boundaries even when cellular infrastructure fails. The on-disk container that holds those layers is itself a performance trade-off; weighing [FlatGeobuf against GeoPackage for offline caching](https://www.incidentgis.com/core-emergency-gis-architecture-data-standards/flatgeobuf-vs-geopackage-for-offline-caching/) decides whether field reads stream a single seekable file or query a transactional SQLite store.
 
+Raster products need the same treatment as vectors and rarely get it; [raster hazard layers published as Cloud-Optimized GeoTIFF](https://www.incidentgis.com/core-emergency-gis-architecture-data-standards/raster-hazard-layers-and-cloud-optimized-geotiff/) let a forward node read one division of a four-gigabyte flood grid over a thin uplink instead of downloading all of it. And once the operational store is carrying an incident's full history, the question of where analytical queries run becomes its own decision — [PostGIS versus DuckDB for incident analytics](https://www.incidentgis.com/core-emergency-gis-architecture-data-standards/postgis-vs-duckdb-for-incident-analytics/) covers routing queries by access pattern without letting a second engine become a second source of truth.
+
 Beyond local caching, system-level resilience demands architectural redundancy. Production deployments should integrate circuit-breaker patterns and read-replica routing to maintain sub-second query latency during peak surge events. Automated health checks should trigger seamless failover without interrupting active incident tracking. The PostGIS layer that backs this datastore — including replica topology and connection pooling — is covered in the [PostGIS setup for emergency response](https://www.incidentgis.com/core-emergency-gis-architecture-data-standards/coordinate-reference-systems-for-disaster-zones/how-to-set-up-postgis-for-emergency-response/) walkthrough.
 
 ## Cross-Agency Interoperability Considerations
@@ -309,6 +367,87 @@ Under intermittent connectivity or surge load, the system degrades in a predicta
 - **Ingestion throughput saturates next.** As CAD and sensor volume spikes, the validation stage sheds load by routing borderline records to quarantine instead of blocking the batch, preserving the clean path for high-severity incidents.
 - **The primary datastore is the next bottleneck.** Read-replica routing and circuit breakers keep the COP queryable; writes buffer locally and replay on recovery.
 - **Connectivity drops last and worst.** Field units fall back entirely to pre-staged offline caches; nothing in the field path may assume a live network. The cache-staging cadence is the difference between a degraded-but-functional command post and a blind one.
+
+Read as a ladder, the useful property is that the tiers break in a fixed order and each one has somewhere to stand when it does. Nothing in the design tries to prevent degradation; it only insists that degradation be ordered and announced.
+
+<svg viewBox="0 0 880 340" role="img" aria-labelledby="degrade-title degrade-desc" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="degrade-title">The order in which four architectural tiers degrade, and the fallback each one takes</title>
+  <desc id="degrade-desc">Four tiers are shown as horizontal bars across five worsening conditions: nominal, transformation-grid fetch failure, surge load, replica-only database availability, and loss of backhaul. CRS transform grids break first, at grid-fetch failure, and fall back to the best available datum shift with a reduced-accuracy audit tag. Ingestion validation breaks second, under surge load, and sheds borderline records to quarantine so the clean path keeps moving. The primary datastore breaks third, when only replicas remain, and falls back to read-replica routing behind a circuit breaker while writes buffer locally for replay. Field connectivity breaks last, when backhaul is lost, and falls back to the pre-staged offline cache with edits queued for replay. Each bar is drawn intact to the left of its break point and hatched to the right of it.</desc>
+  <rect x="0" y="0" width="880" height="340" fill="var(--blush)"/>
+  <defs>
+    <pattern id="degrade-hatch" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <rect width="7" height="7" fill="var(--petal-soft)"/>
+      <path d="M0 0 V7" stroke="var(--ember)" stroke-width="1.6" opacity="0.75"/>
+    </pattern>
+  </defs>
+  <!-- column headers -->
+  <g font-size="10" text-anchor="middle" fill="var(--muted)">
+    <text x="249" y="34">nominal</text>
+    <text x="347" y="34">grid fetch</text>
+    <text x="347" y="46">fails</text>
+    <text x="445" y="34">surge</text>
+    <text x="445" y="46">load</text>
+    <text x="543" y="34">replica</text>
+    <text x="543" y="46">only</text>
+    <text x="641" y="34">no</text>
+    <text x="641" y="46">backhaul</text>
+  </g>
+  <text x="8" y="46" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">Tier</text>
+  <text x="720" y="46" font-size="10.5" font-weight="700" fill="var(--crimson-deep)">Fallback when it breaks</text>
+  <!-- stage separators -->
+  <g stroke="var(--line-strong)" stroke-width="1" stroke-dasharray="3 4" opacity="0.8">
+    <path d="M298 54 V296"/>
+    <path d="M396 54 V296"/>
+    <path d="M494 54 V296"/>
+    <path d="M592 54 V296"/>
+  </g>
+  <!-- tier bars: intact left of the break, hatched right of it -->
+  <g stroke-width="1.3">
+    <rect x="200" y="64" width="98" height="34" rx="5" fill="var(--petal-soft)" stroke="var(--line-strong)"/>
+    <rect x="298" y="64" width="392" height="34" rx="5" fill="url(#degrade-hatch)" stroke="var(--ember)"/>
+    <rect x="200" y="122" width="196" height="34" rx="5" fill="var(--petal-soft)" stroke="var(--line-strong)"/>
+    <rect x="396" y="122" width="294" height="34" rx="5" fill="url(#degrade-hatch)" stroke="var(--ember)"/>
+    <rect x="200" y="180" width="294" height="34" rx="5" fill="var(--petal-soft)" stroke="var(--line-strong)"/>
+    <rect x="494" y="180" width="196" height="34" rx="5" fill="url(#degrade-hatch)" stroke="var(--ember)"/>
+    <rect x="200" y="238" width="392" height="34" rx="5" fill="var(--petal-soft)" stroke="var(--line-strong)"/>
+    <rect x="592" y="238" width="98" height="34" rx="5" fill="url(#degrade-hatch)" stroke="var(--ember)"/>
+  </g>
+  <!-- break markers -->
+  <g fill="var(--crimson)">
+    <circle cx="298" cy="81" r="5"/>
+    <circle cx="396" cy="139" r="5"/>
+    <circle cx="494" cy="197" r="5"/>
+    <circle cx="592" cy="255" r="5"/>
+  </g>
+  <!-- tier labels -->
+  <g font-size="11.5" fill="currentColor">
+    <text x="8" y="86">CRS transform grids</text>
+    <text x="8" y="144">Ingestion validation</text>
+    <text x="8" y="202">Primary datastore</text>
+    <text x="8" y="260">Field connectivity</text>
+  </g>
+  <!-- fallbacks -->
+  <g font-size="10.5" fill="currentColor">
+    <text x="720" y="80">best available shift,</text>
+    <text x="720" y="94">reduced-accuracy tag</text>
+    <text x="720" y="138">shed to quarantine,</text>
+    <text x="720" y="152">clean path stays open</text>
+    <text x="720" y="196">replicas + breaker,</text>
+    <text x="720" y="210">writes buffer, replay</text>
+    <text x="720" y="254">serve pre-staged cache,</text>
+    <text x="720" y="268">queue edits for replay</text>
+  </g>
+  <!-- degradation axis -->
+  <path d="M200 296 H690" fill="none" stroke="var(--crimson)" stroke-width="1.5" marker-end="url(#degrade-tip)"/>
+  <defs>
+    <marker id="degrade-tip" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="var(--crimson)"/>
+    </marker>
+  </defs>
+  <text x="445" y="322" font-size="11" text-anchor="middle" fill="var(--muted)">worsening conditions — each tier serves normally to the left of its break, and runs its fallback to the right</text>
+</svg>
+
+The ordering is not incidental; it is designed. Transformation grids are allowed to fail first precisely because their failure is the cheapest to absorb — a logged 4.5 m parametric fallback still supports every decision a commander makes from the map. Connectivity is allowed to fail last because its fallback is the most expensive to prepare: a pre-staged cache has to have been built before the incident, from a network that no longer exists by the time it is needed. Any tier that degraded out of order would find its fallback unavailable, which is why cache staging is scheduled against the forecast rather than the outage.
 
 The unifying principle across every tier is *fail closed and flag, never fail silent*: a halted job or a quarantined record is recoverable; a positionally drifted evacuation boundary that nobody knows is wrong is not.
 
@@ -372,6 +511,14 @@ The unifying principle across every tier is *fail closed and flag, never fail si
     },
     {
       "@type": "Question",
+      "name": "Which coordinate errors are worth budgeting for, and which must be rejected?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Reference-frame epoch drift, a NAD83 realization shift, and a parametric fallback used when a transformation grid is unavailable all land under about five metres, inside the ten-metre evacuation-line tolerance; record them in the lineage block and carry on. A datum confusion such as NAD27 read as WGS 84 displaces roughly 78 metres while still rendering plausibly, so it must be rejected at ingest rather than budgeted. An inverted axis order is caught by any bounds check because it produces an impossible latitude."
+      }
+    },
+    {
+      "@type": "Question",
       "name": "How does this architecture support a NIMS or FEMA audit?",
       "acceptedAnswer": {
         "@type": "Answer",
@@ -386,6 +533,8 @@ The unifying principle across every tier is *fail closed and flag, never fail si
 
 **What happens to features that fail validation?** They are quarantined, never silently dropped. Geometries are repaired with `make_valid` first; anything still invalid, empty, or null is held for forensic review while the clean path keeps moving.
 
+**Which coordinate errors are worth budgeting for, and which must be rejected?** Reference-frame epoch drift, a NAD83 realization shift, and a parametric fallback used when a transformation grid is unavailable all land under about five metres — inside the ten-metre evacuation-line tolerance. Record them in the lineage block and carry on; knowing an offset is 4.5 m rather than unknown is what makes the feature usable. A datum confusion such as NAD27 read as WGS 84 displaces roughly 78 m while still rendering plausibly, so it must be rejected at ingest rather than budgeted. An inverted axis order needs no special handling at all — it produces an impossible latitude that any bounds check catches.
+
 **How does this architecture support a NIMS or FEMA audit?** Every mutation emits an append-only chain-of-custody record (incident ID, action, authority, content hash) plus an ISO 19115/19139 lineage block, producing a tamper-evident trail aligned with NIMS ICS-209 and FEMA BPAS reporting.
 
 ## Related
@@ -397,5 +546,7 @@ The unifying principle across every tier is *fail closed and flag, never fail si
 - [Compliance Checklists: NIMS ICS-209, FEMA BPAS & OGC API Features](https://www.incidentgis.com/core-emergency-gis-architecture-data-standards/compliance-checklists-nims-fema-ogc/) — field-by-field conformance checklists for the mandated reporting formats.
 - [FlatGeobuf vs GeoPackage for Offline Caching](https://www.incidentgis.com/core-emergency-gis-architecture-data-standards/flatgeobuf-vs-geopackage-for-offline-caching/) — streaming-read versus transactional-store trade-offs for field caches.
 - [Shelter Capacity & Resource Tracking Schemas](https://www.incidentgis.com/core-emergency-gis-architecture-data-standards/shelter-capacity-and-resource-tracking-schemas/) — occupancy and allocation schemas that extend the core spatial contract.
+- [Raster Hazard Layers & Cloud-Optimized GeoTIFF](https://www.incidentgis.com/core-emergency-gis-architecture-data-standards/raster-hazard-layers-and-cloud-optimized-geotiff/) — the raster half of the contract: partial reads, nodata, and vertical datum.
+- [PostGIS vs DuckDB for Incident Analytics](https://www.incidentgis.com/core-emergency-gis-architecture-data-standards/postgis-vs-duckdb-for-incident-analytics/) — where analytical queries run, and the one-directional extract boundary that keeps them honest.
 
 Up: [Incident GIS home](https://www.incidentgis.com/)

@@ -166,6 +166,38 @@ Handle the stream in ordered tiers, from the definitive test down to a safe defa
 3. **Quarantine and substitute a safe default (safe default).** Route the failing feature to a quarantine queue and give it a state a symbolizer can render as "location unknown" — never a coordinate at null island, never a dropped record. A human triages the queue against the originating report.
 4. **Emit an audit record for every rejection.** Original coordinate, failure reason, substituted state, feature identifier, and the ruleset version — so any rejection is reproducible against the exact rule that produced it during after-action review.
 
+The reason this guide is not simply "reject (0, 0)" is that the null-island check sits at the narrowest end of a ladder, and the useful checks are further down it.
+
+<svg viewBox="0 0 880 380" role="img" aria-labelledby="ni-t ni-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="ni-t">Four bounds tests, and how much of the bad-coordinate space each one catches</title>
+  <desc id="ni-d">Four nested checks against a coordinate. A null-island test rejects exactly the point zero, zero and catches only the single most famous failure. A whole-earth test rejects anything outside plus or minus 180 longitude and plus or minus 90 latitude, catching transposed axis order and unit errors. A jurisdiction test rejects anything outside the state or region the agency serves, catching a geocoder that resolved a street name in the wrong state. An incident-extent test rejects anything outside the padded area of interest, which catches everything the others do plus the geocoder that resolved to the right state and the wrong county. Each is a superset of the one before it, so implementing only the first is not a smaller version of the check — it is the version that catches almost nothing.</desc>
+  <rect x="0" y="0" width="880" height="380" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">each test is a superset of the one above — the famous one catches the least</text>
+  <rect x="60" y="70" width="760" height="60" rx="9" fill="var(--cream)" stroke="var(--ember)" stroke-width="1.8"/>
+  <text x="80" y="94" font-size="11" font-weight="700" fill="currentColor">1 · is it exactly (0, 0)?</text>
+  <text x="80" y="114" font-size="10" fill="currentColor">catches the one coordinate everybody knows about, and nothing else</text>
+  <text x="700" y="104" font-size="11" font-weight="700" fill="var(--ember-text)">1 point</text>
+  <rect x="60" y="142" width="760" height="60" rx="9" fill="var(--petal-soft)" stroke="var(--line-strong)" stroke-width="1.5"/>
+  <text x="80" y="166" font-size="11" font-weight="700" fill="currentColor">2 · is it on Earth? ±180 / ±90</text>
+  <text x="80" y="186" font-size="10" fill="currentColor">catches transposed axis order and metres-read-as-degrees</text>
+  <text x="700" y="176" font-size="11" font-weight="700" fill="var(--crimson-deep)">the planet</text>
+  <rect x="60" y="214" width="760" height="60" rx="9" fill="var(--petal)" stroke="var(--crimson)" stroke-width="1.6"/>
+  <text x="80" y="238" font-size="11" font-weight="700" fill="currentColor">3 · is it in our jurisdiction?</text>
+  <text x="80" y="258" font-size="10" fill="currentColor">catches a geocoder that matched the street name in another state</text>
+  <text x="700" y="248" font-size="11" font-weight="700" fill="var(--crimson-deep)">the region</text>
+  <rect x="60" y="286" width="760" height="60" rx="9" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="2"/>
+  <text x="80" y="310" font-size="11" font-weight="700" fill="var(--cream)">4 · is it in this incident's padded extent?</text>
+  <text x="80" y="330" font-size="10" fill="var(--cream)">catches the right state, wrong county — the only one that survives a surge</text>
+  <text x="700" y="320" font-size="11" font-weight="700" fill="var(--cream)">the incident</text>
+  <text x="8" y="372" font-size="10.5" fill="currentColor">Implementing only the null-island check is not a lighter version of this — it is the version that catches almost nothing.</text>
+</svg>
+
+Null island is famous because it is visually striking — a cluster of incidents in the Gulf of Guinea is impossible to miss on a world view — and that fame is exactly why it is the least useful test. A geocoder that fails loudly enough to emit (0, 0) has announced its failure. The geocoder that resolves "Main St" to the Main Street in a neighbouring state has not, and no null-island check will ever see it.
+
+Each rung costs about the same to implement and catches strictly more. The whole-earth test is two comparisons. The jurisdiction test is a point-in-polygon against a boundary you already have. The incident-extent test is a point-in-polygon against the padded area of interest, which the routing and caching layers on this site both already compute. There is no efficiency argument for stopping early — a point-in-polygon against a simplified extent is cheaper than the geocode that produced the coordinate.
+
+The one design decision worth care is the padding on rung four. Too tight and mutual-aid resources staging outside the incident area get rejected; too loose and it degenerates into rung three. Deriving it from the incident's own operational area plus the largest expected staging distance, rather than from a fixed kilometre figure, keeps it meaningful as the incident grows.
+
 ## Production Python Implementation
 
 The validator below carries the full resolution path: exact and near-zero detection, area-of-interest bounds checking, quarantine with a safe default, structured logging, explicit exception handling, and an immutable audit record per rejection. Thresholds and the area-of-interest bounding box are parameters, not literals, so they are committed and versioned alongside the rest of the attribute ruleset. Senior-engineer assumptions apply: `shapely` and `pyproj` are available, coordinates are WGS 84 in longitude, latitude order, and the caller has already normalized axis order at ingest.
@@ -309,6 +341,37 @@ class NullIslandValidator:
 ```
 
 The `audit_log` and `quarantine` list are the load-bearing outputs. Persisting the audit trail as a committed, content-hashed artifact lets a reviewer replay every rejection and confirm that no incident was silently dropped and none was ever plotted at null island — the reproducibility guarantee the wider [automated attribute validation](https://www.incidentgis.com/incident-mapping-multi-agency-sync-workflows/automated-attribute-validation-rules/) ruleset is built to provide.
+
+The other half of the pattern is what happens *after* the rejection, and the temptation is to make the record disappear.
+
+<svg viewBox="0 0 880 360" role="img" aria-labelledby="n2-t n2-d" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;font-family:inherit;color:var(--ink)">
+  <title id="n2-t">Where a rejected coordinate goes, and why it is not simply dropped</title>
+  <desc id="n2-d">A coordinate failing the bounds test takes one of three paths depending on what the record carries. If the record has a usable address string, it returns to the geocoder with the failed coordinate recorded, so a second attempt can be made against a different locator. If it has no address but has a road segment or milepost reference, it resolves to that segment's centroid and is committed with a reduced-confidence flag. If it has neither, it goes to the review queue with the original coordinate preserved. In all three cases the original bad coordinate is retained rather than overwritten, because it is the only evidence of which upstream system produced it — and a class of bad coordinates from one agency's bridge is a fix worth making once rather than absorbing forever.</desc>
+  <rect x="0" y="0" width="880" height="360" fill="var(--blush)"/>
+  <text x="8" y="44" font-size="11" font-weight="700" fill="var(--crimson-deep)">a failed bounds test is a routing decision, not a delete</text>
+  <rect x="40" y="140" width="170" height="60" rx="9" fill="var(--crimson)" stroke="var(--crimson-deep)" stroke-width="1.8"/>
+  <text x="58" y="166" font-size="11" font-weight="700" fill="var(--cream)">fails bounds</text>
+  <text x="58" y="185" font-size="10" fill="var(--cream)">coordinate preserved</text>
+  <path d="M210 158 H300 V96 H360" fill="none" stroke="var(--crimson)" stroke-width="1.6"/>
+  <path d="M210 170 H300 V180 H360" fill="none" stroke="var(--crimson)" stroke-width="1.6"/>
+  <path d="M210 182 H300 V264 H360" fill="none" stroke="var(--crimson)" stroke-width="1.6"/>
+  <rect x="360" y="70" width="480" height="52" rx="8" fill="var(--petal-soft)" stroke="var(--crimson)" stroke-width="1.5"/>
+  <text x="378" y="92" font-size="10.5" font-weight="700" fill="currentColor">has an address string → re-geocode against a second locator</text>
+  <text x="378" y="110" font-size="9.5" fill="var(--muted)">the failed coordinate is attached to the retry so a loop is detectable</text>
+  <rect x="360" y="154" width="480" height="52" rx="8" fill="var(--petal)" stroke="var(--crimson)" stroke-width="1.5"/>
+  <text x="378" y="176" font-size="10.5" font-weight="700" fill="currentColor">has a segment or milepost → resolve to the segment centroid</text>
+  <text x="378" y="194" font-size="9.5" fill="var(--muted)">committed with a reduced-confidence flag, not silently</text>
+  <rect x="360" y="238" width="480" height="52" rx="8" fill="var(--cream)" stroke="var(--ember)" stroke-width="1.8"/>
+  <text x="378" y="260" font-size="10.5" font-weight="700" fill="var(--ember-text)">has neither → review queue, original coordinate intact</text>
+  <text x="378" y="278" font-size="9.5" fill="currentColor">the coordinate is the evidence of which upstream bridge produced it</text>
+  <text x="8" y="330" font-size="10.5" fill="currentColor">Overwrite the bad coordinate and a systematic fault in one agency's feed becomes a permanent background rate.</text>
+</svg>
+
+Preserving the original coordinate is the part that pays off slowly and matters most. A single bad coordinate is noise; forty of them carrying the same signature — all from one agency's CAD bridge, all off by a consistent axis transposition — is a defect with an owner and a one-line fix. Overwrite the coordinate with a corrected or default value and that pattern becomes unfindable, so the same forty arrive every day and the pipeline absorbs them forever.
+
+The re-geocode path needs one guard the diagram implies but does not show: attach the failed coordinate to the retry so a record cannot loop. A locator that consistently resolves a malformed address to the same out-of-bounds point will otherwise cycle indefinitely, and the second locator is only worth consulting if the pipeline can tell that the first one already failed on this exact input.
+
+The middle path is the one that keeps the operating picture usable. A milepost or road-segment reference is coarser than a street address and it is nearly always present in CAD traffic, so resolving to the segment centroid puts a marker within a few hundred metres of the truth rather than leaving a gap. Flagged as reduced-confidence, that is a genuinely useful record — a unit gets dispatched to the right stretch of road — and the flag is what stops it being mistaken for a surveyed position.
 
 ## Validation Checklist
 
